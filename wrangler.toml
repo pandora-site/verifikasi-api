@@ -1,7 +1,8 @@
 name = "verifikasi-api"
-main = "src/index.js"
-compatibility_date = "2026-07-30"
+main = "src/index.ts"
+compatibility_date = "2026-07-31"
+
 routes = [
-  { pattern = "verifikasi.site/data*", custom_domain = false },
-  { pattern = "verifikasi.site/api/*", custom_domain = false },
+  { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
 ]
