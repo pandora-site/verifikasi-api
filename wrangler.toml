@@ -1,0 +1,3 @@
+name = "verifikasi-api"
+main = "src/index.js"
+compatibility_date = "2026-07-30"
