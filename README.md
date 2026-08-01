@@ -9,7 +9,5 @@ Deploy otomatis ke Cloudflare Workers via GitHub Actions.
 3. Tambahkan GitHub Secrets:
    - CLOUDFLARE_API_TOKEN
    - CLOUDFLARE_ACCOUNT_ID
-   - GIST_ID
-   - GITHUB_TOKEN
-   - PASSWORD
+     
 4. Buka tab Actions → Run workflow
