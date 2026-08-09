@@ -1,5 +1,5 @@
 # ============================================================
-# CLOUDFLARE WRANGLER CONFIG - VERSI MAKSIMAL
+# CLOUDFLARE WRANGLER CONFIG - KOMPATIBEL WRANGLER 4.x
 # ============================================================
 
 name = "verifikasi-api"
@@ -27,94 +27,19 @@ routes = [
   { pattern = "verifikasi.site/stats*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/clear*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/delete*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/health*", zone_name = "verifikasi.site" }
+  { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" }
 ]
 
 # ============================================================
-# KV NAMESPACES
+# KV NAMESPACES (HANYA 1 YANG DIPERLUKAN)
 # ============================================================
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
 preview_id = "1cabd6aa38c64e908dc453dcba3cd153"
 
-# C2 History KV
-[[kv_namespaces]]
-binding = "C2_HISTORY"
-id = "c2_history_kv_id"
-preview_id = "c2_history_kv_preview"
-
-# File Storage KV
-[[kv_namespaces]]
-binding = "FILES"
-id = "files_kv_id"
-preview_id = "files_kv_preview"
-
 # ============================================================
-# D1 DATABASE (SQL)
-# ============================================================
-[[d1_databases]]
-binding = "DB"
-database_name = "verifikasi-db"
-database_id = "your_d1_database_id"
-preview_database_id = "your_preview_d1_id"
-
-# ============================================================
-# R2 BUCKET (File Storage)
-# ============================================================
-[[r2_buckets]]
-binding = "FILES_BUCKET"
-bucket_name = "verifikasi-files"
-preview_bucket_name = "verifikasi-files-preview"
-
-# ============================================================
-# QUEUES (Message Queue)
-# ============================================================
-[[queues.producers]]
-binding = "DATA_QUEUE"
-queue = "data-queue"
-
-[[queues.consumers]]
-queue = "data-queue"
-max_batch_size = 100
-max_batch_timeout = 5
-
-# ============================================================
-# CRON TRIGGERS (Scheduled Tasks)
-# ============================================================
-[triggers]
-crons = ["0 0 * * *"]  # Setiap hari jam 00:00
-
-# ============================================================
-# LOGPUSH (Logging)
-# ============================================================
-[logpush]
-enabled = true
-
-# ============================================================
-# ANALYTICS ENGINE
-# ============================================================
-[[analytics_engine_datasets]]
-binding = "ANALYTICS"
-dataset = "verifikasi_analytics"
-
-# ============================================================
-# OBSERVABILITY
-# ============================================================
-[observability]
-enabled = true
-head_sampling_rate = 1.0
-
-# ============================================================
-# DEPLOYMENT
-# ============================================================
-[deploy]
-minify = true
-source_maps = true
-
-# ============================================================
-# STAGING ENVIRONMENT
+# STAGING ENVIRONMENT (OPSIONAL)
 # ============================================================
 [env.staging]
 name = "verifikasi-api-staging"
@@ -128,58 +53,3 @@ vars = { ENVIRONMENT = "staging", LOG_LEVEL = "debug" }
 binding = "DATA"
 id = "staging_kv_id"
 preview_id = "staging_kv_preview"
-
-# ============================================================
-# PRODUCTION ENVIRONMENT
-# ============================================================
-[env.production]
-name = "verifikasi-api"
-routes = [
-  { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" }
-]
-vars = { ENVIRONMENT = "production", LOG_LEVEL = "info" }
-
-[[env.production.kv_namespaces]]
-binding = "DATA"
-id = "1cabd6aa38c64e908dc453dcba3cd153"
-preview_id = "1cabd6aa38c64e908dc453dcba3cd153"
-
-# ============================================================
-# AI (Workers AI)
-# ============================================================
-[[ai]]
-binding = "AI"
-id = "your_ai_model_id"
-
-# ============================================================
-# HYPERDRIVE (Database Acceleration)
-# ============================================================
-[[hyperdrive]]
-binding = "HYPERDRIVE"
-id = "your_hyperdrive_id"
-
-# ============================================================
-# TAIL (Live Logs)
-# ============================================================
-[tail]
-sampling = { rate = 1.0 }
-
-# ============================================================
-# ASSETS (Static Assets)
-# ============================================================
-[assets]
-directory = "./public"
-binding = "ASSETS"
-
-# ============================================================
-# CUSTOM DOMAINS
-# ============================================================
-[[custom_domains]]
-domain = "verifikasi.site"
-zone = "verifikasi.site"
-
-# ============================================================
-# VERSION
-# ============================================================
-version = "2.0.0"
