@@ -1,55 +1,12 @@
-# ============================================================
-# CLOUDFLARE WRANGLER CONFIG - KOMPATIBEL WRANGLER 4.x
-# ============================================================
-
 name = "verifikasi-api"
 main = "src/index.js"
 compatibility_date = "2026-07-31"
-compatibility_flags = ["nodejs_compat"]
 
-# ============================================================
-# ENVIRONMENT VARIABLES
-# ============================================================
-[vars]
-ENVIRONMENT = "production"
-LOG_LEVEL = "info"
-MAX_DATA = "5000"
-RATE_LIMIT = "100"
-C2_TIMEOUT = "60000"
-
-# ============================================================
-# ROUTES
-# ============================================================
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/stats*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/clear*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/delete*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" }
+  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" }
 ]
 
-# ============================================================
-# KV NAMESPACES (HANYA 1 YANG DIPERLUKAN)
-# ============================================================
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
-preview_id = "1cabd6aa38c64e908dc453dcba3cd153"
-
-# ============================================================
-# STAGING ENVIRONMENT (OPSIONAL)
-# ============================================================
-[env.staging]
-name = "verifikasi-api-staging"
-routes = [
-  { pattern = "staging.verifikasi.site/data*", zone_name = "verifikasi.site" },
-  { pattern = "staging.verifikasi.site/api/*", zone_name = "verifikasi.site" }
-]
-vars = { ENVIRONMENT = "staging", LOG_LEVEL = "debug" }
-
-[[env.staging.kv_namespaces]]
-binding = "DATA"
-id = "staging_kv_id"
-preview_id = "staging_kv_preview"
