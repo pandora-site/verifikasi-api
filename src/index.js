@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (VERSI FIXED)
+// Cloudflare Worker - verifikasi-api (VERSI FIXED & CLEAN)
 // ================================================================
 
 // ============================================================
@@ -49,7 +49,7 @@ function unauthorizedResponse() {
 }
 
 // ============================================================
-// RATE LIMITING (FIXED - TANPA ERROR TS)
+// RATE LIMITING (FIXED - MEMASTIKAN ANGKA)
 // ============================================================
 async function checkRateLimit(env, key) {
   const now = Date.now();
@@ -57,7 +57,8 @@ async function checkRateLimit(env, key) {
   
   try {
     const raw = await env.DATA.get(windowKey);
-    const count = parseInt(raw || '0', 10);
+    // PERBAIKAN: Pastikan selalu string, jika null jadi '0'
+    const count = parseInt(raw || '0', 10); 
     
     if (count >= CONFIG.RATE_LIMIT) {
       return { allowed: false, retryAfter: CONFIG.RATE_WINDOW };
@@ -452,12 +453,12 @@ async function handleGetData(request, env) {
       });
     }
     
-    // Sort
+    // Sort (FIXED: mengubah objek Date menjadi angka milidetik .getTime())
     const sort = url.searchParams.get('sort') || 'newest';
     if (sort === 'newest') {
-      data.sort((a, b) => new Date(b.waktu) - new Date(a.waktu));
+      data.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
     } else if (sort === 'oldest') {
-      data.sort((a, b) => new Date(a.waktu) - new Date(b.waktu));
+      data.sort((a, b) => new Date(a.waktu).getTime() - new Date(b.waktu).getTime());
     } else if (sort === 'source') {
       data.sort((a, b) => (a.sumber || '').localeCompare(b.sumber || ''));
     }
@@ -504,7 +505,7 @@ async function handleStats(request, env) {
     // Data terbaru
     const latest = data.length > 0 ? data[data.length - 1] : null;
     
-    // Range waktu
+    // Range waktu (FIXED: menggunakan .getTime() dan validasi array kosong)
     let timeRange = { first: null, last: null };
     if (data.length > 0) {
       const times = data.map(d => new Date(d.waktu).getTime()).filter(t => !isNaN(t));
