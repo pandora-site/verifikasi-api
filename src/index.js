@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (VERSI MAKSIMAL)
+// Cloudflare Worker - verifikasi-api (VERSI FIXED)
 // ================================================================
 
 // ============================================================
@@ -49,21 +49,26 @@ function unauthorizedResponse() {
 }
 
 // ============================================================
-// RATE LIMITING
+// RATE LIMITING (FIXED - TANPA ERROR TS)
 // ============================================================
 async function checkRateLimit(env, key) {
   const now = Date.now();
   const windowKey = `ratelimit_${key}_${Math.floor(now / CONFIG.RATE_WINDOW)}`;
   
   try {
-    const count = parseInt(await env.DATA.get(windowKey) || '0');
+    const raw = await env.DATA.get(windowKey);
+    const count = parseInt(raw || '0', 10);
+    
     if (count >= CONFIG.RATE_LIMIT) {
       return { allowed: false, retryAfter: CONFIG.RATE_WINDOW };
     }
-    await env.DATA.put(windowKey, String(count + 1), { expirationTtl: CONFIG.RATE_WINDOW / 1000 });
+    
+    await env.DATA.put(windowKey, String(count + 1), { 
+      expirationTtl: Math.floor(CONFIG.RATE_WINDOW / 1000) 
+    });
+    
     return { allowed: true };
   } catch(e) {
-    // Jika rate limit gagal, izinkan request
     return { allowed: true };
   }
 }
