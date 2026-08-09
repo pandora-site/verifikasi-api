@@ -1,11 +1,13 @@
 name = "verifikasi-api"
 main = "src/index.js"
 compatibility_date = "2026-07-31"
+compatibility_flags = ["nodejs_compat"]
 
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" }
-]
+  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" }
+  ]
 
 [[kv_namespaces]]
 binding = "DATA"
