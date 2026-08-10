@@ -1,5 +1,5 @@
 # ============================================================
-# wrangler.toml - SUDAH DIPERBAIKI
+# wrangler.toml - SUDAH DIPERBAIKI (HAPUS metrics)
 # ============================================================
 
 name = "verifikasi-api"
@@ -8,7 +8,7 @@ compatibility_date = "2026-07-31"
 compatibility_flags = ["nodejs_compat"]
 
 # ============================================================
-# 🔥 ROUTES (LENGKAP)
+# 🔥 ROUTES
 # ============================================================
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
@@ -31,7 +31,7 @@ binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
 
 # ============================================================
-# 🔥 ENVIRONMENT VARIABLES (UNTUK DEVELOPMENT)
+# 🔥 ENVIRONMENT VARIABLES (HANYA UNTUK DEVELOPMENT)
 # ============================================================
 [vars]
 PASSWORD = "default_device_password"
@@ -40,18 +40,12 @@ ENVIRONMENT = "development"
 LOG_LEVEL = "debug"
 
 # ============================================================
-# 🔥 OBSERVABILITY
+# 🔥 OBSERVABILITY (HANYA logs & traces - HAPUS metrics)
 # ============================================================
 [observability]
 logs = { enabled = true }
 traces = { enabled = true }
-metrics = { enabled = true }
 
 # ============================================================
-# 🔥 ENVIRONMENTS
+# 🔥 ENVIRONMENTS (HAPUS staging/production - PAKAI SATU SAJA)
 # ============================================================
-[env.staging]
-vars = { PASSWORD = "staging_device_pass", ADMIN_PASSWORD = "staging_admin_pass", ENVIRONMENT = "staging" }
-
-[env.production]
-vars = { PASSWORD = "prod_device_pass", ADMIN_PASSWORD = "prod_admin_pass", ENVIRONMENT = "production" }
