@@ -19,11 +19,3 @@ routes = [
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
-
-[vars]
-ENVIRONMENT = "development"
-LOG_LEVEL = "debug"
-
-[observability]
-logs = { enabled = true }
-traces = { enabled = true }
