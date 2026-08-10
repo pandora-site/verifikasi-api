@@ -11,7 +11,8 @@ routes = [
   { pattern = "verifikasi.site/clear*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/delete*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" }
+  { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" }
   ]
 
 [[kv_namespaces]]
