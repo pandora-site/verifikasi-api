@@ -1,0 +1,50 @@
+# ============================================================
+# .gitignore - verifikasi-api
+# ============================================================
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# Secrets & Config
+.env
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+*secret*
+*password*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+*.tmp
+
+# Build
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
