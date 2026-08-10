@@ -1,8 +1,15 @@
+# ============================================================
+# wrangler.toml - SUDAH DIPERBAIKI
+# ============================================================
+
 name = "verifikasi-api"
 main = "src/index.js"
 compatibility_date = "2026-07-31"
 compatibility_flags = ["nodejs_compat"]
 
+# ============================================================
+# 🔥 ROUTES (LENGKAP)
+# ============================================================
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
@@ -12,9 +19,39 @@ routes = [
   { pattern = "verifikasi.site/delete*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" }
-  ]
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/files*", zone_name = "verifikasi.site" }
+]
 
+# ============================================================
+# 🔥 KV NAMESPACE
+# ============================================================
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
+
+# ============================================================
+# 🔥 ENVIRONMENT VARIABLES (UNTUK DEVELOPMENT)
+# ============================================================
+[vars]
+PASSWORD = "default_device_password"
+ADMIN_PASSWORD = "default_admin_password"
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+
+# ============================================================
+# 🔥 OBSERVABILITY
+# ============================================================
+[observability]
+logs = { enabled = true }
+traces = { enabled = true }
+metrics = { enabled = true }
+
+# ============================================================
+# 🔥 ENVIRONMENTS
+# ============================================================
+[env.staging]
+vars = { PASSWORD = "staging_device_pass", ADMIN_PASSWORD = "staging_admin_pass", ENVIRONMENT = "staging" }
+
+[env.production]
+vars = { PASSWORD = "prod_device_pass", ADMIN_PASSWORD = "prod_admin_pass", ENVIRONMENT = "production" }
