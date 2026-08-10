@@ -1,15 +1,8 @@
-# ============================================================
-# wrangler.toml - SUDAH DIPERBAIKI (HAPUS metrics)
-# ============================================================
-
 name = "verifikasi-api"
 main = "src/index.js"
 compatibility_date = "2026-07-31"
 compatibility_flags = ["nodejs_compat"]
 
-# ============================================================
-# 🔥 ROUTES
-# ============================================================
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
@@ -23,29 +16,14 @@ routes = [
   { pattern = "verifikasi.site/files*", zone_name = "verifikasi.site" }
 ]
 
-# ============================================================
-# 🔥 KV NAMESPACE
-# ============================================================
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
 
-# ============================================================
-# 🔥 ENVIRONMENT VARIABLES (HANYA UNTUK DEVELOPMENT)
-# ============================================================
 [vars]
-PASSWORD = "default_device_password"
-ADMIN_PASSWORD = "default_admin_password"
 ENVIRONMENT = "development"
 LOG_LEVEL = "debug"
 
-# ============================================================
-# 🔥 OBSERVABILITY (HANYA logs & traces - HAPUS metrics)
-# ============================================================
 [observability]
 logs = { enabled = true }
 traces = { enabled = true }
-
-# ============================================================
-# 🔥 ENVIRONMENTS (HAPUS staging/production - PAKAI SATU SAJA)
-# ============================================================
