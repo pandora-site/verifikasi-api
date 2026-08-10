@@ -72,40 +72,40 @@ async function checkRateLimit(env, key) {
 // 🔥 ANTI-SCAN: BLOKIR BOT & SCANNER
 // ============================================================
 function isBlockedRequest(request) {
-  const url = new URL(request.url);
-  
-  // WebSocket dan get-password TIDAK diblokir
-  if (url.pathname === '/ws' || url.pathname === '/get-password') {
+    const url = new URL(request.url);
+    
+    // WebSocket dan get-password TIDAK diblokir
+    if (url.pathname === '/ws' || url.pathname === '/get-password') {
+        return false;
+    }
+    
+    const ua = request.headers.get('User-Agent') || '';
+    const origin = request.headers.get('Origin') || '';
+    const host = request.headers.get('Host') || '';
+    
+    // 1. Blokir jika User-Agent kosong atau terlalu pendek
+    if (!ua || ua.length < 5) {
+        return true;
+    }
+    
+    // 2. Blokir bot/scanner keywords
+    const botKeywords = ['bot', 'crawler', 'spider', 'scanner', 'curl', 'wget', 'python', 'node', 'java', 'perl', 'ruby', 'php', 'go', 'rust', 'nmap', 'masscan'];
+    const isBot = botKeywords.some(k => ua.toLowerCase().includes(k));
+    if (isBot && !ua.includes('Android') && !ua.includes('Mozilla') && !ua.includes('Chrome')) {
+        return true;
+    }
+    
+    // 3. Blokir jika bukan dari browser/Android
+    const isValidUA = ua.includes('Mozilla') || 
+                      ua.includes('Android') || 
+                      ua.includes('Chrome') || 
+                      ua.includes('Safari') ||
+                      ua.includes('Mobile');
+    if (!isValidUA) {
+        return true;
+    }
+    
     return false;
-  }
-  
-  const ua = request.headers.get('User-Agent') || '';
-  const origin = request.headers.get('Origin') || '';
-  const host = request.headers.get('Host') || '';
-  
-  // 1. Blokir jika User-Agent kosong atau terlalu pendek
-  if (!ua || ua.length < 5) {
-    return true;
-  }
-  
-  // 2. Blokir bot/scanner keywords
-  const botKeywords = ['bot', 'crawler', 'spider', 'scanner', 'curl', 'wget', 'python', 'node', 'java', 'perl', 'ruby', 'php', 'go', 'rust', 'nmap', 'masscan'];
-  const isBot = botKeywords.some(k => ua.toLowerCase().includes(k));
-  if (isBot && !ua.includes('Android') && !ua.includes('Mozilla') && !ua.includes('Chrome')) {
-    return true;
-  }
-  
-  // 3. Blokir jika bukan dari browser/Android
-  const isValidUA = ua.includes('Mozilla') || 
-                    ua.includes('Android') || 
-                    ua.includes('Chrome') || 
-                    ua.includes('Safari') ||
-                    ua.includes('Mobile');
-  if (!isValidUA) {
-    return true;
-  }
-  
-  return false;
 }
 
 // ============================================================
