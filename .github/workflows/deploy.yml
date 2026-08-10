@@ -27,9 +27,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           wrangler deploy
-
-      # 🔥 SKIP SET SECRET PASSWORD (KARENA SUDAH ADA)
-      - name: Set Secret PASSWORD (skip if exists)
+          
+      - name: Set Secret PASSWORD
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -40,9 +39,8 @@ jobs:
             echo "${{ secrets.PASSWORD }}" | wrangler secret put PASSWORD
             echo "✅ Secret PASSWORD created"
           fi
-
-      # 🔥 SKIP SET SECRET ADMIN_PASSWORD (KARENA SUDAH ADA)
-      - name: Set Secret ADMIN_PASSWORD (skip if exists)
+          
+      - name: Set Secret ADMIN_PASSWORD
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
