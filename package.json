@@ -12,9 +12,7 @@
     "kv:list": "wrangler kv:namespace list",
     "kv:get": "wrangler kv:key get --binding=DATA",
     "kv:put": "wrangler kv:key put --binding=DATA",
-    "kv:delete": "wrangler kv:key delete --binding=DATA",
-    "secret:put": "wrangler secret put PASSWORD",
-    "secret:delete": "wrangler secret delete PASSWORD"
+    "kv:delete": "wrangler kv:key delete --binding=DATA"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
