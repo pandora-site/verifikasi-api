@@ -8,113 +8,15 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "deploy:staging": "wrangler deploy --env staging",
-    "deploy:prod": "wrangler deploy --env production",
-    "start": "wrangler dev --remote",
-    "build": "echo 'No build required'",
-    "test": "vitest",
-    "test:watch": "vitest --watch",
-    "test:coverage": "vitest --coverage",
-    "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit",
-    "cf:typegen": "wrangler types",
-    "prepare": "husky install",
-    "pre-commit": "lint-staged",
-    "clean": "rm -rf .wrangler node_modules",
     "logs": "wrangler tail",
-    "logs:json": "wrangler tail --format json",
     "kv:list": "wrangler kv:namespace list",
     "kv:get": "wrangler kv:key get --binding=DATA",
     "kv:put": "wrangler kv:key put --binding=DATA",
     "kv:delete": "wrangler kv:key delete --binding=DATA",
-    "secret:put:password": "wrangler secret put PASSWORD",
-    "secret:put:admin": "wrangler secret put ADMIN_PASSWORD",
-    "secret:delete:password": "wrangler secret delete PASSWORD",
-    "secret:delete:admin": "wrangler secret delete ADMIN_PASSWORD"
-  },
-  "dependencies": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "itty-router": "^4.0.0",
-    "itty-router-extras": "^0.4.2"
+    "secret:put": "wrangler secret put PASSWORD",
+    "secret:delete": "wrangler secret delete PASSWORD"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
-    "@types/node": "^20.11.0",
-    "eslint": "^9.0.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.29.0",
-    "globals": "^15.0.0",
-    "husky": "^9.0.0",
-    "lint-staged": "^15.2.0",
-    "prettier": "^3.2.0",
-    "typescript": "^5.3.0",
-    "vitest": "^1.2.0",
     "wrangler": "^4.0.0"
-  },
-  "lint-staged": {
-    "*.js": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.json": [
-      "prettier --write"
-    ],
-    "*.md": [
-      "prettier --write"
-    ]
-  },
-  "eslintConfig": {
-    "extends": [
-      "eslint:recommended",
-      "prettier"
-    ],
-    "env": {
-      "es2022": true,
-      "worker": true,
-      "browser": true,
-      "node": true
-    },
-    "parserOptions": {
-      "ecmaVersion": 2022,
-      "sourceType": "module"
-    },
-    "rules": {
-      "no-unused-vars": "warn",
-      "no-console": "warn",
-      "eqeqeq": "error",
-      "curly": "error",
-      "no-var": "error",
-      "prefer-const": "error"
-    },
-    "ignorePatterns": [
-      "node_modules",
-      "dist",
-      "build",
-      ".wrangler"
-    ]
-  },
-  "prettier": {
-    "semi": true,
-    "singleQuote": true,
-    "tabWidth": 2,
-    "trailingComma": "es5",
-    "printWidth": 100,
-    "bracketSpacing": true,
-    "arrowParens": "avoid"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "author": "verifikasi-site",
-  "license": "MIT",
-  "keywords": [
-    "cloudflare",
-    "worker",
-    "api",
-    "verifikasi",
-    "c2"
-  ]
+  }
 }
