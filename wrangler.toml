@@ -5,15 +5,9 @@ compatibility_flags = ["nodejs_compat"]
 
 routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/api/*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/stats*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/clear*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/delete*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/error*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/api/data*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/files*", zone_name = "verifikasi.site" }
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" }
 ]
 
 [[kv_namespaces]]
