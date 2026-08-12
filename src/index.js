@@ -1,5 +1,5 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (ZERO PASSWORD!)
+// Cloudflare Worker - verifikasi-api (TANPA PASSWORD!)
 // ================================================================
 
 const MAX_DATA = 5000;
