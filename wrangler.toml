@@ -3,12 +3,11 @@ main = "src/index.js"
 compatibility_date = "2026-07-31"
 compatibility_flags = ["nodejs_compat"]
 
-
 routes = [
-  { pattern = "verifikasi.site/data", custom_domain = true },
-  { pattern = "verifikasi.site/get-password", custom_domain = true },
-  { pattern = "verifikasi.site/ws", custom_domain = true },
-  { pattern = "verifikasi.site/c2", custom_domain = true }
+  { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" }
 ]
 
 [[kv_namespaces]]
