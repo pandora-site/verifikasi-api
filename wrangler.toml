@@ -14,10 +14,8 @@ routes = [
   { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
   { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/files*", zone_name = "verifikasi.site" },
-  { pattern = "verifikasi.site/dashboard*", zone_name = "verifikasi.site" }
-]
+  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" }
+  ]
 
 # ============================================================
 # KV NAMESPACE - PENYIMPANAN DATA
