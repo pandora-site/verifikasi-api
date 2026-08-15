@@ -1,12 +1,27 @@
+# ============================================================
+# WRANGLER.TOML - KONFIGURASI CLOUDFLARE WORKER
+# ============================================================
+
 name = "verifikasi-api"
 main = "src/index.js"
 compatibility_date = "2026-07-31"
 compatibility_flags = ["nodejs_compat"]
 
+# ============================================================
+# ROUTES - ENDPOINT YANG AKTIF
+# ============================================================
 routes = [
-  { pattern = "verifikasi.site/*", zone_name = "verifikasi.site" }
+  { pattern = "verifikasi.site/data*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/get-password*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/ws*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/c2*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/files*", zone_name = "verifikasi.site" },
+  { pattern = "verifikasi.site/dashboard*", zone_name = "verifikasi.site" }
 ]
 
+# ============================================================
+# KV NAMESPACE - PENYIMPANAN DATA
+# ============================================================
 [[kv_namespaces]]
 binding = "DATA"
 id = "1cabd6aa38c64e908dc453dcba3cd153"
